@@ -14,6 +14,8 @@
 - 09:44 T12 완료 (D 레인). `pytest -q` 39 passed 3 skipped. main에 합침.
 - 09:47 T04 완료 (B 레인, 12분). `pytest -q` 102 passed 3 skipped. main에 합침.
 - 09:58 T05 완료 (B 레인). `pytest -q` 130 passed 3 skipped. main에 합침. B 레인은 T16까지 대기.
+- 09:54 T06 완료 (A 레인, 6분). main에 합침.
+- 09:55 T09 완료 (C 레인). main에 합침. `pytest -q` 205 passed 3 skipped.
 ## 막힘
 
 <!-- 작업 id, 무엇이 막혔나, 시도한 것, 사람이 정할 것 -->
@@ -31,6 +33,7 @@
 - T12 / SPEC 8.4: SSE 빈 줄과 `:` 주석은 건너뛴다, 모르는 이벤트 이름은 무시한다, 타임아웃 `httpx.Timeout(60.0, connect=10.0)`, 호출마다 `AsyncClient`를 새로 연다.
 - T04 / SPEC 8.1: `lang`의 `have`에서 시험 여럿을 잇는 순서는 `LANG_TYPES` 순서로, `langs` 되묻기 문구는 시험이 셋 이상이면 앞의 둘만 쓴다. 6.2 표 밖의 모르는 type은 pending으로 둔다.
 - T05 / SPEC 8.1: 같은 `kind` 안 알림 순서는 목록 순서로 정했다. `alerts()` 입력 모양은 7절 목록 항목과 상세 필드를 그대로 쓴다. 되묻기 선택지 라벨은 경계값 기준이고 값만 학생 구간으로 좁힌다.
+- T06 / SPEC 7: `POST /api/students`는 200 + `{"id"}`, `created_at`은 로컬 ISO 초 단위. `grad_year` 범위는 7절 값을 `judge.KEY_RANGE`에 합쳤다. `langs` 값은 문자열만 받는다. `history`의 null은 "모름"으로 저장한다. `alt`의 "조건 없는 카드"에 조건 0건도 넣는다.
 ## spec 수정
 
 <!-- 작업 id, 고친 절, 무엇을 왜 -->
