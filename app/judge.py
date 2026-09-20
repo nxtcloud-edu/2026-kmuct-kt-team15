@@ -4,6 +4,8 @@ Pure functions: the input is a card dict and a student profile dict. This module
 knows nothing about the DB or the LLM (SPEC 12).
 """
 
+from datetime import date, timedelta
+
 LANG_TYPES = ["TOEIC", "TOEFL iBT", "IELTS", "TOEIC Speaking", "OPIc"]
 OPIC_GRADES = ["NL", "NM", "NH", "IL", "IM1", "IM2", "IM3", "IH", "AL"]
 FOREIGN_FLAG = "외국인 유학생"
@@ -20,6 +22,10 @@ KEY_RANGE = {
     "income_bracket": (0, 10),
     "admission_year": (2000, 2026),
 }
+
+# The ask-back keys in SPEC 6.4 table order, which breaks ties in step 2 of the
+# ask-back rule. `history:{flag}` keys rank after all of these.
+ASK_ORDER = ["gpa_last", "credits_last", "credits_total", "income_bracket", "admission_year"]
 
 # SPEC 8.1 "질문 문구는 키별 고정 틀이다". `history:{flag}` has its own template.
 QUESTIONS = {
@@ -359,3 +365,196 @@ def judge_notice(card, profile):
         "gap": gap,
         "rows": rows,
     }
+
+
+def is_ask_field(field) -> bool:
+    """Is this one of the ask-back keys? Onboarding keys are answered in 내 정보 (SPEC 8.1)."""
+    if not field:
+        return False
+    if field.startswith("history:"):
+        return field.split(":", 1)[1] != FOREIGN_FLAG
+    return field in ASK_ORDER
+
+
+def _boundaries(key, cond):
+    """Choice boundaries one condition contributes (SPEC 8.1 step 3)."""
+    params = cond.get("params") or {}
+    out = []
+    if key == "income_bracket":
+        if params.get("max") is not None:
+            out.append(params["max"] + 1)  # "이하" 조건이라서 +1
+    else:
+        if params.get("min") is not None:
+            out.append(params["min"])
+        if key == "admission_year" and params.get("max") is not None:
+            out.append(params["max"] + 1)
+    low, high = KEY_RANGE[key]
+    return [c for c in out if low < c <= high]  # SPEC 8.1: the rest cannot split any answer
+
+
+def _choices(key, boundaries, held):
+    """Ask-back choices, highest band first (SPEC 7 되묻기 카드, 8.1 step 3)."""
+    is_gpa = key in ("gpa", "gpa_last")
+    step = 0.01 if is_gpa else 1
+    unit = UNITS[key]
+    fmt = gpa_text if is_gpa else (lambda v: str(int(v)))
+    low_end = held.get("min") if isinstance(held, dict) else None
+    high_end = held.get("max") if isinstance(held, dict) else None
+
+    def value(low, high):
+        # SPEC 8.1: an answer already held as a range narrows the choices, never widens them.
+        if low is None or (low_end is not None and low_end > low):
+            low = low_end
+        if high is None or (high_end is not None and high_end < high):
+            high = high_end
+        return {"min": low, "max": high}
+
+    out = []
+    for index in range(len(boundaries) - 1, -1, -1):
+        start = boundaries[index]
+        if index == len(boundaries) - 1:
+            out.append({"label": f"{fmt(start)}{unit} 이상", "value": value(start, None)})
+            continue
+        after = boundaries[index + 1]
+        end = round(after - step, 2) if is_gpa else after - 1
+        if is_gpa:
+            label = f"{fmt(start)} ~ {fmt(after)}"  # 평점은 다음 경계값
+        elif start == end:
+            label = f"{fmt(start)}{unit}"
+        else:
+            label = f"{fmt(start)} ~ {fmt(end)}{unit}"
+        out.append({"label": label, "value": value(start, end)})
+    first = boundaries[0]
+    end = round(first - step, 2) if is_gpa else first - 1
+    out.append({"label": f"{fmt(first)}{unit} 미만", "value": value(None, end)})
+    return out
+
+
+def _question(field) -> str:
+    if field.startswith("history:"):
+        return f"'{field.split(':', 1)[1]}'에 해당하나요?"
+    return QUESTIONS[field]
+
+
+def _rank_fields(pool):
+    """Ask-back keys of the held notices, best first (SPEC 8.1 step 2)."""
+    counts, first_seen = {}, {}
+    for card_index, (_, result) in enumerate(pool):
+        seen = set()
+        for row_index, row in enumerate(result["rows"]):
+            field = row["field"]
+            if row["status"] != "missing" or not is_ask_field(field):
+                continue
+            first_seen.setdefault(field, (card_index, row_index))
+            if field not in seen:
+                seen.add(field)
+                counts[field] = counts.get(field, 0) + 1
+
+    def order(field):
+        table = ASK_ORDER.index(field) if field in ASK_ORDER else len(ASK_ORDER)
+        return (-counts[field], table, first_seen[field])
+
+    return sorted(counts, key=order)
+
+
+def ask_back(cards, profile, field=None):
+    """The ask-back card of SPEC 7, or None (SPEC 8.1 "되묻기").
+
+    `cards` are the cards visible to this student, in list order (NEW, then deadline).
+    `field` asks with one fixed key instead, and then notices with a `fail` row count
+    too. A key with no question template raises ValueError (the API answers 422).
+    """
+    judged = [(card, judge_notice(card, profile)) for card in cards]
+    if field is not None:
+        if not is_ask_field(field):
+            raise ValueError(f"not an ask-back field: {field}")
+        pool, candidates = judged, [field]
+    else:
+        pool = [
+            (card, result)
+            for card, result in judged
+            if not any(row["status"] == "fail" for row in result["rows"])
+            and any(row["status"] == "missing" for row in result["rows"])
+        ]
+        candidates = _rank_fields(pool)
+
+    for key in candidates:
+        held = [
+            (card, result)
+            for card, result in pool
+            if any(row["field"] == key and row["status"] == "missing" for row in result["rows"])
+        ]
+        if not held:
+            continue
+        if key.startswith("history:"):
+            choices = [{"label": "예", "value": True}, {"label": "아니오", "value": False}]
+        else:
+            boundaries = sorted(
+                {
+                    boundary
+                    for card, result in held
+                    for cond, row in zip(card.get("conditions") or [], result["rows"])
+                    if row["field"] == key and row["status"] == "missing"
+                    for boundary in _boundaries(key, cond)
+                }
+            )
+            if not boundaries:
+                continue  # SPEC 8.1: no boundary left, so no answer would split anything
+            choices = _choices(key, boundaries, profile.get(key))
+        return {
+            "field": key,
+            "question": _question(key),
+            "unlock": len(held),
+            "choices": choices,
+        }
+    return None
+
+
+def with_overrides(profile, overrides):
+    """A copy of the profile with assumed values (SPEC 8.1 "가정 판정"). Never stored."""
+    merged = dict(profile)
+    for key, value in (overrides or {}).items():
+        if key == "history":
+            history = dict(profile.get("history") or {})
+            history.update(value or {})
+            merged["history"] = history
+        else:
+            merged[key] = value
+    return merged
+
+
+def alerts(items, profile, today):
+    """The three alert kinds, in SPEC 8.1 order. `items` are the visible cards.
+
+    Each item carries `key`, `title`, `apply_end`, `is_new`, `planned`, `conditions`
+    and `tasks` ({"title", "due", "done"}), the way SPEC 7 shapes them.
+    """
+    out = []
+    for item in items:
+        if item.get("is_new") and judge_notice(item, profile)["eligible"]:
+            out.append({
+                "kind": "new",
+                "title": "새 기회를 찾았어요",
+                "body": f"{item['title']} · 내 조건으로 지원할 수 있어요",
+                "notice_key": item["key"],
+            })
+    in_three_days = (date.fromisoformat(today) + timedelta(days=3)).isoformat()
+    for item in items:
+        if item.get("planned") and item.get("apply_end") == in_three_days:
+            out.append({
+                "kind": "deadline",
+                "title": f"{item['title']} 마감이 3일 남았어요",
+                "body": "",
+                "notice_key": item["key"],
+            })
+    planned = sorted((i for i in items if i.get("planned")), key=lambda i: i["key"])
+    for item in planned:  # SPEC 7: notice key first, then the order of the tasks
+        for task in item.get("tasks") or []:
+            if task.get("due") == today and not task.get("done"):
+                out.append({
+                    "kind": "today",
+                    "title": "오늘 할 일",
+                    "body": task["title"],
+                    "notice_key": item["key"],
+                })
+    return out

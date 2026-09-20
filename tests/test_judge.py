@@ -1,8 +1,18 @@
-"""T04: condition and notice judging (SPEC 6.2, 8.1; examples 10.1 J1-J6, J12-J18)."""
+"""T04, T05: judging, ask-back, assumed values and alerts (SPEC 6.2, 6.4, 8.1).
+
+The tables below carry the examples of SPEC 10.1 J1-J20.
+"""
 
 import pytest
 
-from app.judge import judge_condition, judge_notice
+from app.judge import (
+    KEY_RANGE,
+    alerts,
+    ask_back,
+    judge_condition,
+    judge_notice,
+    with_overrides,
+)
 
 ROW_KEYS = {"type", "label", "need", "status", "have", "gap", "chip", "tip", "field", "ask"}
 
@@ -497,3 +507,287 @@ def test_notice(conditions, profile, eligible, gap, bucket):
     assert result["gap"] == gap
     assert len(result["rows"]) == len(conditions)
     assert group(result) == bucket
+
+
+# --- T05: ask-back, assumed values, alerts (SPEC 8.1; examples 10.1 J7-J11, J19, J20) ---
+
+
+def card(key, conditions):
+    """A card the way the list hands it to the ask-back rule."""
+    return {"key": key, "title": f"공지 {key}", "conditions": conditions}
+
+
+def flag_cond(flag):
+    return cond("history", flag, "해당", flag=flag, must=True)
+
+
+def income_cond(ceiling):
+    return cond("income", "소득 분위", f"{ceiling}분위 이하", max=ceiling)
+
+
+YES_NO = [{"label": "예", "value": True}, {"label": "아니오", "value": False}]
+ADMISSION = cond("admission_year", "입학 연도", "2023~2026년 입학", min=2023, max=2026)
+CREDITS15 = cond("credits", "직전 학기 이수 학점", "15학점 이상", min=15, scope="last")
+GPA_LAST38 = cond("gpa", "직전 학기 평점", "3.8 이상", min=3.8, scope="last")
+GPA_LAST_CHOICES = [
+    {"label": "3.5 이상", "value": {"min": 3.5, "max": None}},
+    {"label": "3.5 미만", "value": {"min": None, "max": 3.49}},
+]
+
+# (test id, visible cards, profile, field, expected card)
+ASK_CASES = [
+    (
+        "J7 history flags are counted in the order of the card",
+        [card("n:1", [flag_cond("편입생"), flag_cond("징계 이력")])],
+        {},
+        None,
+        {"field": "history:편입생", "question": "'편입생'에 해당하나요?", "unlock": 1,
+         "choices": YES_NO},
+    ),
+    (
+        "J7 the other order picks the other flag",
+        [card("n:1", [flag_cond("징계 이력"), flag_cond("편입생")])],
+        {},
+        None,
+        {"field": "history:징계 이력", "question": "'징계 이력'에 해당하나요?", "unlock": 1,
+         "choices": YES_NO},
+    ),
+    (
+        "J8 the key that unlocks the most notices wins over the table order",
+        [
+            card("n:1", [flag_cond("편입생")]),
+            card("n:2", [flag_cond("편입생")]),
+            card("n:3", [GPA_LAST]),
+        ],
+        {},
+        None,
+        {"field": "history:편입생", "question": "'편입생'에 해당하나요?", "unlock": 2,
+         "choices": YES_NO},
+    ),
+    (
+        "J9 a tie falls back to the SPEC 6.4 table order",
+        [card("n:1", [income_cond(8)]), card("n:2", [GPA_LAST])],
+        {},
+        None,
+        {"field": "gpa_last", "question": "직전 학기 평점이 어느 구간인가요?", "unlock": 1,
+         "choices": GPA_LAST_CHOICES},
+    ),
+    (
+        "J9 history flags rank behind every other ask-back key",
+        [card("n:1", [flag_cond("편입생")]), card("n:2", [ADMISSION])],
+        {},
+        None,
+        {"field": "admission_year", "question": "입학 연도가 언제인가요?", "unlock": 1,
+         "choices": [
+             {"label": "2023년 이상", "value": {"min": 2023, "max": None}},
+             {"label": "2023년 미만", "value": {"min": None, "max": 2022}},
+         ]},
+    ),
+    (
+        "J10 a notice with a fail row is left out and the held range narrows the choices",
+        [card("n:1", [CREDITS]), card("n:2", [CREDITS15])],
+        {"credits_last": {"min": 10, "max": 14}},
+        None,
+        {"field": "credits_last", "question": "직전 학기에 몇 학점을 이수했나요?", "unlock": 1,
+         "choices": [
+             {"label": "12학점 이상", "value": {"min": 12, "max": 14}},
+             {"label": "12학점 미만", "value": {"min": 10, "max": 11}},
+         ]},
+    ),
+    (
+        "J19 two income ceilings give a one-bracket middle choice",
+        [card("n:1", [income_cond(5)]), card("n:2", [income_cond(6)])],
+        {},
+        None,
+        {"field": "income_bracket", "question": "소득 분위가 어느 구간인가요?", "unlock": 2,
+         "choices": [
+             {"label": "7분위 이상", "value": {"min": 7, "max": None}},
+             {"label": "6분위", "value": {"min": 6, "max": 6}},
+             {"label": "6분위 미만", "value": {"min": None, "max": 5}},
+         ]},
+    ),
+    (
+        "J20 a boundary outside the key range is dropped",
+        [card("n:1", [income_cond(10)]), card("n:2", [income_cond(5)])],
+        {},
+        None,
+        {"field": "income_bracket", "question": "소득 분위가 어느 구간인가요?", "unlock": 2,
+         "choices": [
+             {"label": "6분위 이상", "value": {"min": 6, "max": None}},
+             {"label": "6분위 미만", "value": {"min": None, "max": 5}},
+         ]},
+    ),
+    (
+        "J20 a key with no boundary left is not asked at all",
+        [card("n:1", [income_cond(10)])],
+        {},
+        None,
+        None,
+    ),
+    (
+        "J20 that key is null when it is asked by name too",
+        [card("n:1", [income_cond(10)])],
+        {},
+        "income_bracket",
+        None,
+    ),
+    (
+        "a fixed key also gathers notices that have a fail row",
+        [card("n:1", [GPA_LAST, SEMESTERS])],
+        {"semesters": 2},
+        "gpa_last",
+        {"field": "gpa_last", "question": "직전 학기 평점이 어느 구간인가요?", "unlock": 1,
+         "choices": GPA_LAST_CHOICES},
+    ),
+    (
+        "a notice with a fail row is never picked on its own",
+        [card("n:1", [GPA_LAST, SEMESTERS])],
+        {"semesters": 2},
+        None,
+        None,
+    ),
+    (
+        "nothing is held back, so there is no question",
+        [card("n:1", [SEMESTERS])],
+        {"semesters": 6},
+        None,
+        None,
+    ),
+    (
+        "a fixed key with no missing row anywhere is null",
+        [card("n:1", [GPA_LAST])],
+        {"gpa_last": 3.9},
+        "gpa_last",
+        None,
+    ),
+    (
+        "onboarding keys are never counted",
+        [card("n:1", [GPA, LANG])],
+        {},
+        None,
+        None,
+    ),
+    (
+        "two grade thresholds name the middle band by the next boundary",
+        [card("n:1", [GPA_LAST]), card("n:2", [GPA_LAST38])],
+        {},
+        None,
+        {"field": "gpa_last", "question": "직전 학기 평점이 어느 구간인가요?", "unlock": 2,
+         "choices": [
+             {"label": "3.8 이상", "value": {"min": 3.8, "max": None}},
+             {"label": "3.5 ~ 3.8", "value": {"min": 3.5, "max": 3.79}},
+             {"label": "3.5 미만", "value": {"min": None, "max": 3.49}},
+         ]},
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "cards, profile, field, expected",
+    [pytest.param(c, p, f, e, id=name) for name, c, p, f, e in ASK_CASES],
+)
+def test_ask_back(cards, profile, field, expected):
+    assert ask_back(cards, profile, field) == expected
+
+
+@pytest.mark.parametrize(
+    "field", ["gpa", "langs", "major", "topik", "history:외국인 유학생", "없는키"]
+)
+def test_ask_back_rejects_a_key_without_a_question(field):
+    with pytest.raises(ValueError):
+        ask_back([card("n:1", [GPA_LAST])], {}, field)
+
+
+def test_every_choice_stays_inside_the_profile_validation_range():
+    """J20: every choice value has to survive PATCH /api/me (SPEC 7, 8.1 step 3)."""
+    cards = [
+        card("n:1", [GPA_LAST]),
+        card("n:2", [CREDITS]),
+        card("n:3", [income_cond(5)]),
+        card("n:4", [ADMISSION]),
+    ]
+    profile, asked = {}, []
+    while True:
+        result = ask_back(cards, profile, None)
+        if result is None:
+            break
+        key = result["field"]
+        low, high = KEY_RANGE[key]
+        for choice in result["choices"]:
+            for end in (choice["value"]["min"], choice["value"]["max"]):
+                if end is None:
+                    continue
+                assert low <= end <= high
+                if key not in ("gpa", "gpa_last"):
+                    assert isinstance(end, int)
+        asked.append(key)
+        profile = dict(profile)
+        profile[key] = result["choices"][0]["value"]
+    assert asked == ["gpa_last", "credits_last", "income_bracket", "admission_year"]
+
+
+def test_answering_a_choice_settles_the_condition():
+    """J20: answering "2023년 이상" makes that admission_year condition pass."""
+    result = ask_back([card("n:1", [ADMISSION])], {}, None)
+    top = result["choices"][0]["value"]
+    assert judge_condition(ADMISSION, {"admission_year": top})["status"] == "pass"
+    bottom = result["choices"][-1]["value"]
+    assert judge_condition(ADMISSION, {"admission_year": bottom})["status"] == "fail"
+
+
+def test_overrides_leave_the_given_profile_alone():
+    """J11: assumed judging never touches the profile it was handed."""
+    profile = {"gpa": 3.0, "history": {"편입생": True}, "langs": {"TOEIC": "850"}}
+    merged = with_overrides(profile, {"gpa": 3.2, "history": {"징계 이력": False}})
+    assert profile == {"gpa": 3.0, "history": {"편입생": True}, "langs": {"TOEIC": "850"}}
+    assert merged["gpa"] == 3.2
+    assert merged["history"] == {"편입생": True, "징계 이력": False}
+    assert merged["langs"] == {"TOEIC": "850"}
+    assert judge_condition(GPA, merged)["status"] == "pass"
+    assert judge_condition(GPA, profile)["status"] == "pass"
+
+
+def test_overrides_replace_langs_whole():
+    profile = {"langs": {"TOEIC": "850", "IELTS": "7.0"}}
+    merged = with_overrides(profile, {"langs": {"OPIc": "IM2"}})
+    assert merged["langs"] == {"OPIc": "IM2"}
+    assert profile["langs"] == {"TOEIC": "850", "IELTS": "7.0"}
+
+
+TODAY = "2026-03-16"
+
+
+def test_alerts_come_in_the_spec_order():
+    items = [
+        {"key": "n:1", "title": "OK프렌즈 서포터즈", "apply_end": "2026-03-25", "is_new": True,
+         "planned": False, "conditions": [], "tasks": []},
+        {"key": "n:2", "title": "성적우수 장학금", "apply_end": "2026-03-19", "is_new": False,
+         "planned": True, "conditions": [], "tasks": []},
+        {"key": "n:3", "title": "교내 근로", "apply_end": "2026-03-30", "is_new": False,
+         "planned": True, "conditions": [],
+         "tasks": [{"title": "성적증명서 발급", "due": TODAY, "done": False},
+                   {"title": "신청서 제출", "due": "2026-03-30", "done": False}]},
+    ]
+    got = alerts(items, {}, TODAY)
+    assert [a["kind"] for a in got] == ["new", "deadline", "today"]
+    assert got[0] == {"kind": "new", "title": "새 기회를 찾았어요",
+                      "body": "OK프렌즈 서포터즈 · 내 조건으로 지원할 수 있어요", "notice_key": "n:1"}
+    assert got[1] == {"kind": "deadline", "title": "성적우수 장학금 마감이 3일 남았어요",
+                      "body": "", "notice_key": "n:2"}
+    assert got[2] == {"kind": "today", "title": "오늘 할 일", "body": "성적증명서 발급",
+                      "notice_key": "n:3"}
+
+
+def test_alerts_only_when_the_condition_holds():
+    items = [
+        {"key": "n:1", "title": "새 공지", "apply_end": "2026-03-25", "is_new": True,
+         "planned": False, "conditions": [GPA], "tasks": []},            # not eligible
+        {"key": "n:2", "title": "마감이 먼 공지", "apply_end": "2026-03-20", "is_new": False,
+         "planned": True, "conditions": [], "tasks": []},                # today + 4
+        {"key": "n:3", "title": "계획에 없는 공지", "apply_end": "2026-03-19", "is_new": False,
+         "planned": False, "conditions": [], "tasks": []},               # not planned
+        {"key": "n:4", "title": "다 끝낸 공지", "apply_end": "2026-03-30", "is_new": False,
+         "planned": True, "conditions": [],
+         "tasks": [{"title": "신청서 제출", "due": TODAY, "done": True}]},
+    ]
+    assert alerts(items, {"gpa": 2.0}, TODAY) == []
