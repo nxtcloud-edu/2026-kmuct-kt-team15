@@ -285,6 +285,49 @@ select.inp{appearance:none;-webkit-appearance:none}
 .askcard .chips{width:100%}
 .askwrap{display:flex;flex-direction:column;gap:8px}
 
+/* 5.4 오늘 할 일 */
+.todo{display:flex;flex-direction:column;gap:12px}
+.check .ttl,.check .sml{display:block}
+
+/* 5.8 내 계획 */
+.planhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.planhead .right{display:flex;align-items:center;gap:8px;flex:none}
+.seg{display:inline-flex;position:relative;height:32px;padding:3px;background:var(--fill);border-radius:999px}
+.seg>i{position:absolute;top:3px;left:3px;bottom:3px;width:calc(50% - 3px);background:var(--accent);
+  border-radius:999px;transition:transform .15s ease-out}
+.seg.month>i{transform:translateX(100%)}
+.seg button{position:relative;z-index:1;min-width:36px;padding:0 10px;border-radius:999px;
+  font-size:13px;font-weight:700;color:var(--muted)}
+.seg button[aria-pressed="true"]{color:#fff}
+.calrow{display:flex;align-items:center;margin:8px 0 16px}
+.calrow>.iconbtn{flex:none}
+.cal{flex:1;min-width:0}
+.cal.next{animation:cal-next .18s ease-out}
+.cal.prev{animation:cal-prev .18s ease-out}
+@keyframes cal-next{from{transform:translateX(20px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes cal-prev{from{transform:translateX(-20px);opacity:.4}to{transform:none;opacity:1}}
+.wk{display:flex}
+.mweek{margin-bottom:6px}
+.cell{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+.wd{font-size:12px;color:var(--muted);height:18px;line-height:18px}
+.day{width:36px;height:36px;border-radius:50%;font-size:16px;font-weight:700;display:grid;place-items:center}
+.day.today{background:var(--accent);color:var(--on-accent)}
+.day.pick{box-shadow:inset 0 0 0 2px var(--accent)}
+.day.out{opacity:.35;cursor:default}
+.lanes{position:relative;height:28px}
+.bar{position:absolute;height:5px;background:var(--bg)}
+.bar.dim{background:linear-gradient(to right,transparent,var(--bg))}
+.bar.l{border-top-left-radius:3px;border-bottom-left-radius:3px}
+.bar.r{border-top-right-radius:3px;border-bottom-right-radius:3px}
+.bar>i{position:absolute;right:0;top:0;width:2px;height:5px;background:var(--fg)}
+.over{position:absolute;bottom:0;transform:translateX(-50%);font-size:9px;font-weight:700;color:var(--muted)}
+.planitem{padding:20px 0}
+.planitem+.planitem{border-top:1px solid var(--line)}
+.phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;width:100%;text-align:left}
+.phead .nm{font-size:18px;font-weight:700}
+.phead .dd{font-size:16px;font-weight:700;flex:none}
+.plans+.tbtn{display:block;margin:0 auto}
+
 /* SPEC 8.3 원문 시트: 출처별 구역과 인용 강조 */
 .rawsec{display:flex;flex-direction:column;gap:8px}
 .rawsec .sechead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
@@ -292,7 +335,8 @@ select.inp{appearance:none;-webkit-appearance:none}
 .raw mark{background:var(--accent-weak);color:var(--text);border-radius:3px;padding:0 1px}
 
 @media (prefers-reduced-motion: reduce){
-  .screen.enter,.sheet,.push,.splash .mid{animation:none}
+  .screen.enter,.sheet,.push,.splash .mid,.cal.next,.cal.prev{animation:none}
+  .seg>i{transition:none}
   .splash .bar>i{animation:none;width:100%}
   .spin{animation-duration:2s}
 }
@@ -359,6 +403,9 @@ const daysBetween = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 8640000
 const dday = (s) => { const n = daysBetween(state.today, s); return n === 0 ? "D-DAY" : (n > 0 ? "D-" + n : "D+" + (-n)); };
 const dueText = (s) => { const n = daysBetween(state.today, s); return n < 0 ? "지남" : n === 0 ? "오늘까지" : n === 1 ? "내일까지" : shortDate(s) + "까지"; };
 const secText = (ms) => (ms / 1000).toFixed(1) + "초";
+const dayLabel = (s) => { const d = parseDate(s); return (d.getMonth() + 1) + "월 " + d.getDate() + "일"; };
+const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); return ymd(d); };
+const addMonths = (s, n) => { const d = parseDate(s); d.setDate(1); d.setMonth(d.getMonth() + n); return ymd(d); };
 
 /* ---------- 3. icons (24 grid) ---------- */
 const ICON = {
@@ -424,6 +471,13 @@ const state = {
   ask: null,          // GET /api/ask card on home
   askHidden: [],      // "모르겠어요" fields, this visit only
   rowAsk: null,       // {field, card} unfolded under a detail ask row
+  plan: [],           // GET /api/plan items (details, deadline first)
+  planLoaded: false,
+  planView: "week",   // 5.8 week | month
+  planAnchor: null,   // first day of the shown week, or a day of the shown month
+  planPick: null,     // the chosen day, or null
+  slide: "",          // "next" | "prev" for one calendar slide
+  checking: 0,        // 새 공지 확인 progress, 0 = not running
   cats: [],           // 5.4 category filter. empty = "전체"
   open: {info: false, wait: false, fail: false},  // home groups 3, 4, 2
   checked: false,     // has "새 공지 확인" run yet (5.4 pill text)
@@ -823,11 +877,49 @@ function obStep2(intl){
 /* ---------- 5.4 home ---------- */
 const catOk = (it) => state.cats.length === 0 || state.cats.indexOf(it.category) >= 0;
 
-function refreshPill(){
+/* 5.4 + SPEC 8.3: "{M}월 {D}일 기준" until 새 공지 확인 has run, "n/30" while it
+   runs, "방금 확인" after. Only the pill is redrawn while it counts. */
+function pillInner(){
+  if (state.checking > 0) return '<span class="spin"></span>공지 확인 중 ' + state.checking + '/30';
   const d = parseDate(state.today);
   const when = state.checked ? "방금 확인" : (d.getMonth() + 1) + "월 " + d.getDate() + "일 기준";
-  return '<button class="pill" data-refresh="1"><span class="led"></span>'
-    + '공지 새로고침 · ' + esc(when) + ICON.refresh + '</button>';
+  return '<span class="led"></span>공지 새로고침 · ' + esc(when) + ICON.refresh;
+}
+
+function refreshPill(){
+  return '<button class="pill" id="pill" data-refresh="1"'
+    + (state.checking > 0 ? " disabled" : "") + '>' + pillInner() + '</button>';
+}
+
+/* 5.4 오늘 할 일: the tasks of planned notices due today or tomorrow, unfinished
+   first then by 기한, three at most. */
+function todayTasks(){
+  const rows = [];
+  const tomorrow = addDays(state.today, 1);
+  state.plan.forEach(function (it){
+    (it.tasks || []).forEach(function (t){
+      if (t.due === state.today || t.due === tomorrow) rows.push({task: t, notice: it});
+    });
+  });
+  rows.sort(function (a, b){
+    if (!!a.task.done !== !!b.task.done) return a.task.done ? 1 : -1;
+    return a.task.due < b.task.due ? -1 : (a.task.due > b.task.due ? 1 : 0);
+  });
+  return rows.slice(0, 3);
+}
+
+function todoCard(){
+  const rows = todayTasks();
+  if (!rows.length) return "";   // 5.4: no card at all when there is nothing
+  return '<div class="card todo"><span class="label">오늘 할 일</span>'
+    + rows.map(function (r){
+      return '<button class="check" role="checkbox" aria-checked="' + (!!r.task.done) + '"'
+        + ' data-task="' + esc(r.task.id) + '" data-done="' + (r.task.done ? "0" : "1") + '"'
+        + ' data-title="' + esc(r.task.title) + '">'
+        + '<span class="dot">' + (r.task.done ? ICON.check : "") + '</span>'
+        + '<span><span class="ttl">' + esc(r.task.title) + '</span>'
+        + '<span class="sml">' + esc(r.notice.title) + ' · ' + esc(dueText(r.task.due)) + '</span></span></button>';
+    }).join("") + '</div>';
 }
 
 function catsRow(){
@@ -894,11 +986,175 @@ function homeView(){
     + (filtered ? '<span class="label">전체 ' + total + '개 중</span>' : '<span></span>')
     + refreshPill() + '</div></div>'
     + '<div class="stack">'
-    /* T11 puts the 오늘 할 일 card here, above the 되묻기 card (UI 5.4). */
+    + todoCard()
     + askCard()
     + catsRow()
     + '<div class="card">' + list + '</div>'
     + '</div></div></div>' + tabbar() + '</div>';
+}
+
+/* ---------- 5.8 내 계획 ---------- */
+const TONE_ORDER = ["sem", "gpa", "lang", "major", "any"];
+
+/* 5.8: no 신청 시작일 means "three days before the deadline", drawn faded. */
+function periodOf(it){
+  return {start: it.apply_start || addDays(it.apply_end, -3), end: it.apply_end, dim: !it.apply_start};
+}
+
+/* 5.8: three lanes. Walking the notices by deadline (then by start), a notice
+   takes the first lane whose last bar ended before it starts. */
+function assignLanes(items){
+  const last = [null, null, null];
+  const lanes = {};
+  items.slice().sort(function (a, b){
+    const pa = periodOf(a), pb = periodOf(b);
+    if (pa.end !== pb.end) return pa.end < pb.end ? -1 : 1;
+    if (pa.start !== pb.start) return pa.start < pb.start ? -1 : 1;
+    return 0;
+  }).forEach(function (it){
+    const p = periodOf(it);
+    lanes[it.key] = -1;
+    for (let i = 0; i < 3; i++){
+      if (last[i] === null || last[i] < p.start){ last[i] = p.end; lanes[it.key] = i; break; }
+    }
+  });
+  return lanes;
+}
+
+function lanesHtml(weekStart, lanes){
+  const weekEnd = addDays(weekStart, 6);
+  let html = "";
+  state.plan.forEach(function (it, i){
+    const lane = lanes[it.key];
+    if (lane == null || lane < 0) return;
+    const p = periodOf(it);
+    if (p.end < weekStart || p.start > weekEnd) return;
+    const from = Math.max(0, daysBetween(weekStart, p.start));
+    const to = Math.min(6, daysBetween(weekStart, p.end));
+    const tone = TONE_ORDER[i % TONE_ORDER.length];
+    const cls = "bar" + (p.start >= weekStart ? " l" : "") + (p.end <= weekEnd ? " r" : "") + (p.dim ? " dim" : "");
+    html += '<button class="' + cls + '" data-key="' + esc(it.key) + '" aria-label="' + esc(it.title) + '"'
+      + ' style="--bg:var(--tone-' + tone + '-bg);--fg:var(--tone-' + tone + '-fg);'
+      + 'left:' + (from / 7 * 100) + '%;width:' + ((to - from + 1) / 7 * 100) + '%;top:' + (lane * 7) + 'px">'
+      + (p.end <= weekEnd ? '<i></i>' : "") + '</button>';
+  });
+  /* 5.8: more than three notices on one day shows what is left over */
+  for (let d = 0; d < 7; d++){
+    const day = addDays(weekStart, d);
+    let n = 0;
+    state.plan.forEach(function (it){
+      const p = periodOf(it);
+      if (p.start <= day && day <= p.end) n++;
+    });
+    if (n > 3){
+      html += '<span class="over" style="left:' + ((d + 0.5) / 7 * 100) + '%">+' + (n - 3) + '</span>';
+    }
+  }
+  return '<div class="lanes">' + html + '</div>';
+}
+
+function dayCell(day, weekday, out){
+  const isToday = day === state.today;
+  const cls = "day" + (isToday ? " today" : "") + (state.planPick === day ? " pick" : "") + (out ? " out" : "");
+  const n = parseDate(day).getDate();
+  return '<div class="cell"><span class="wd">' + esc(weekday) + '</span>'
+    + (out ? '<span class="' + cls + '">' + n + '</span>'
+           : '<button class="' + cls + '" data-day="' + day + '">' + n + '</button>')
+    + '</div>';
+}
+
+function weekRow(weekStart, lanes, month){
+  let cells = "";
+  for (let i = 0; i < 7; i++){
+    const day = addDays(weekStart, i);
+    const out = month != null && parseDate(day).getMonth() !== month;
+    cells += dayCell(day, month == null ? WEEKDAYS[parseDate(day).getDay()] : "", out);
+  }
+  return '<div class="wk">' + cells + '</div>' + lanesHtml(weekStart, lanes);
+}
+
+function calendarHtml(){
+  const lanes = assignLanes(state.plan);
+  const slide = state.slide ? " " + state.slide : "";
+  let inner;
+  let prevLabel, nextLabel;
+  if (state.planView === "week"){
+    inner = weekRow(state.planAnchor, lanes, null);
+    prevLabel = "이전 주";
+    nextLabel = "다음 주";
+  } else {
+    const first = state.planAnchor.slice(0, 8) + "01";
+    const month = parseDate(first).getMonth();
+    const gridStart = addDays(first, -parseDate(first).getDay());
+    const days = daysBetween(gridStart, addMonths(first, 1)) ;
+    const rows = Math.ceil(days / 7);
+    let body = '<div class="wk">' + WEEKDAYS.map(function (w){
+      return '<div class="cell"><span class="wd">' + w + '</span></div>';
+    }).join("") + '</div>';
+    for (let r = 0; r < rows; r++){
+      body += '<div class="mweek">' + weekRow(addDays(gridStart, r * 7), lanes, month) + '</div>';
+    }
+    inner = body;
+    prevLabel = "이전 달";
+    nextLabel = "다음 달";
+  }
+  return '<div class="calrow">'
+    + '<button class="iconbtn sm" data-cal="-1" aria-label="' + prevLabel + '">' + ICON.back + '</button>'
+    + '<div class="cal' + slide + '">' + inner + '</div>'
+    + '<button class="iconbtn sm" data-cal="1" aria-label="' + nextLabel + '">' + ICON.next + '</button>'
+    + '</div>';
+}
+
+function taskRow(task){
+  const on = state.planPick && task.due === state.planPick;
+  return '<button class="task' + (on ? " on" : "") + '" role="checkbox" aria-checked="' + (!!task.done) + '"'
+    + ' data-task="' + esc(task.id) + '" data-done="' + (task.done ? "0" : "1") + '">'
+    + '<span class="dot">' + (task.done ? ICON.check : "") + '</span>'
+    + '<span class="name">' + esc(task.title) + '</span>'
+    + '<span class="when">' + (task.due ? esc(shortDate(task.due)) : "") + '</span></button>';
+}
+
+function planView(){
+  const label = state.planView === "week"
+    ? dayLabel(state.planAnchor) + " ~ " + dayLabel(addDays(state.planAnchor, 6))
+    : parseDate(state.planAnchor).getFullYear() + "년 " + (parseDate(state.planAnchor).getMonth() + 1) + "월";
+  const atToday = state.planView === "week"
+    ? state.planAnchor === addDays(state.today, -1)
+    : state.planAnchor.slice(0, 7) === state.today.slice(0, 7);
+  const picked = state.planPick;
+  const dueHere = picked && state.plan.some(function (it){
+    return (it.tasks || []).some(function (t){ return t.due === picked; });
+  });
+
+  let list;
+  if (!state.plan.length){
+    list = '<div class="empty">홈에서 기회를 골라 계획에 넣어 보세요</div>';
+  } else {
+    list = '<div class="plans">' + state.plan.map(function (it){
+      return '<div class="planitem">'
+        + '<button class="phead" data-key="' + esc(it.key) + '"><span class="nm">' + esc(it.title) + '</span>'
+        + '<span class="dd">' + ddayHtml(it.apply_end) + '</span></button>'
+        + (it.tasks || []).map(taskRow).join("")
+        + '</div>';
+    }).join("") + '</div>'
+      + '<button class="tbtn" data-cal-add="1">캘린더 앱에 모두 추가</button>';
+  }
+
+  const html = '<div class="screen ground enter">'
+    + topbar('<span class="tabtitle">내 계획</span>', personBtn)
+    + '<div class="scroll"><div class="col">'
+    + '<div class="planhead"><span class="label">' + esc(label) + '</span><span class="right">'
+    + (atToday ? "" : '<button class="tbtn" data-today="1">오늘</button>')
+    + '<span class="seg' + (state.planView === "month" ? " month" : "") + '" role="group" aria-label="주/월 보기"><i></i>'
+    + '<button data-planview="week" aria-pressed="' + (state.planView === "week") + '">주</button>'
+    + '<button data-planview="month" aria-pressed="' + (state.planView === "month") + '">월</button>'
+    + '</span></span></div>'
+    + calendarHtml()
+    + (picked && !dueHere ? '<div class="label">' + esc(longDate(picked)) + '에는 준비할 일이 없어요</div>' : "")
+    + list
+    + '</div></div>' + tabbar() + '</div>';
+  state.slide = "";   // the slide plays once
+  return html;
 }
 
 /* ---------- 5.5 detail ---------- */
@@ -957,7 +1213,7 @@ function detailView(){
     h += '<div class="band"></div><div class="col sec"><h2>준비할 것</h2><div class="steps">'
       + tasks.map(function (t, i){
         return '<button role="checkbox" aria-checked="' + (!!t.done) + '" data-task="' + esc(t.id) + '"'
-          + (d.planned ? "" : " disabled") + '>'
+          + ' data-done="' + (t.done ? "0" : "1") + '"' + (d.planned ? "" : " disabled") + '>'
           + '<span class="n">' + (t.done ? ICON.checkSm : (i + 1)) + '</span>'
           + '<span class="nm">' + esc(t.title) + '</span>'
           + '<span class="when">' + (t.due ? esc(longDate(t.due)) : "") + '</span></button>';
@@ -1008,7 +1264,7 @@ const VIEWS = {
   obi2: function (){ return obStep2(true); },
   home: homeView,
   chat: function (){ return tabPlaceholder("대화", "대화 화면은 T15가 만든다"); },
-  plan: function (){ return tabPlaceholder("내 계획", "내 계획 화면은 T11이 만든다"); },
+  plan: planView,
   detail: detailView,
   profile: profileView
 };
@@ -1052,8 +1308,10 @@ function go(screen, from){
   state.screen = screen;
   lastScreen = null;
   enterForm(screen, prev);
+  if (screen === "plan") resetPlan();
   render();
   if (screen === "home" && (!state.noticesLoaded || state.noticesStale)) refreshNotices();
+  if (screen === "home" || screen === "plan") ensurePlan();
 }
 
 /* The onboarding draft survives ob1 <-> ob2. Every other way in rebuilds the
@@ -1201,6 +1459,101 @@ async function loadDetail(key){
     state.detail = detail;
     render();
   } catch (err){ apiToast(err); }
+}
+
+/* ---------- 5.8, 6 계획, 할 일, 알림, 새 공지 (SPEC 7, 8.3) ---------- */
+async function loadPlan(){
+  try {
+    const body = await api("/api/plan");
+    state.plan = (body && body.items) || [];
+    state.planLoaded = true;
+  } catch (err){ apiToast(err); }
+  render();
+}
+
+function ensurePlan(){ if (!state.planLoaded) loadPlan(); }
+
+/* 5.8: 내 계획 always opens on this week. */
+function resetPlan(){
+  state.planView = "week";
+  state.planAnchor = addDays(state.today, -1);   /* 5.8: 어제부터 7일 */
+  state.planPick = state.today;
+  state.slide = "";
+}
+
+async function setPlanned(key, on){
+  try {
+    await api("/api/plan/" + encodeURIComponent(key), {method: on ? "POST" : "DELETE"});
+  } catch (err){ apiToast(err); return; }
+  toast(on ? "내 계획에 넣었어요" : "계획에서 뺐어요");
+  loadPlan();
+  refreshNotices();
+  if (state.detailKey) loadDetail(state.detailKey);
+}
+
+async function setTask(id, done, title){
+  try {
+    await api("/api/tasks/" + encodeURIComponent(id), {method: "PUT", body: {done: done}});
+  } catch (err){ apiToast(err); return; }
+  /* 5.4: this toast belongs to the home card only */
+  if (done && title && state.screen === "home") toast("'" + title + "' 완료");
+  loadPlan();
+  if (state.screen === "detail" && state.detailKey) loadDetail(state.detailKey);
+}
+
+/* 6 + SPEC 8.3: count to 30 in 72ms steps (the mockup's ~2.2s), then reveal. */
+function startCheck(){
+  if (state.checking > 0) return;
+  if (state.screen !== "home") go("home");
+  state.checking = 1;
+  render();
+  startCheck._t = setInterval(function (){
+    if (state.checking >= 30){
+      clearInterval(startCheck._t);
+      finishCheck();
+      return;
+    }
+    state.checking += 1;
+    const pill = document.getElementById("pill");
+    if (pill) pill.innerHTML = pillInner();
+  }, 72);
+}
+
+async function finishCheck(){
+  state.checking = 0;
+  state.checked = true;
+  let items = [];
+  try {
+    const body = await api("/api/reveal-new", {method: "POST"});
+    items = (body && body.items) || [];
+  } catch (err){
+    render();
+    apiToast(err);
+    return;
+  }
+  if (!items.length){
+    render();
+    toast("새로 올라온 공지가 없어요");
+    return;
+  }
+  await refreshNotices();
+  const it = items[0];
+  const g = groupOf(it);
+  if (g === 1) banner("새 기회를 찾았어요", it.title + " · 내 조건으로 지원할 수 있어요", it.key);
+  else if (g === 2) banner("새 공지가 올라왔어요", it.title + " · 지금 조건으로는 지원할 수 없어요", it.key);
+  else if (g === 3) banner("새 공지가 올라왔어요", it.title + " · 정보를 더 입력하면 확인할 수 있어요", it.key);
+  else banner("새 공지가 올라왔어요", it.title + " · " + (it.gap || ""), it.key);
+}
+
+/* SPEC 8.3 기존 동작 연결: the first alert that is not the 새 공지 one. */
+async function showAlert(){
+  let list = [];
+  try {
+    list = await api("/api/alerts") || [];
+  } catch (err){ apiToast(err); return; }
+  const alert = list.filter(function (a){ return a.kind !== "new"; })[0];
+  if (!alert){ toast("받을 알림이 없어요"); return; }
+  banner(alert.title, alert.body || "", alert.notice_key);
 }
 
 /* SPEC 8.1 `field`: an onboarding key goes to 내 정보, a 되묻기 key is answered
@@ -1364,6 +1717,49 @@ document.addEventListener("click", function (e){
   }
   if (e.target.closest("[data-raw]")){ openRaw(); return; }
 
+  /* 계획, 할 일, 달력, 알림, 새 공지 확인 */
+  if ((el = e.target.closest("[data-plan]"))){
+    if (state.detailKey) setPlanned(state.detailKey, el.getAttribute("data-plan") === "1");
+    return;
+  }
+  if ((el = e.target.closest("[data-task]"))){
+    setTask(el.getAttribute("data-task"), el.getAttribute("data-done") === "1", el.getAttribute("data-title"));
+    return;
+  }
+  if ((el = e.target.closest("[data-day]"))){
+    const day = el.getAttribute("data-day");
+    state.planPick = state.planPick === day ? null : day;   /* 5.8: press again to drop it */
+    render();
+    return;
+  }
+  if ((el = e.target.closest("[data-cal]"))){
+    const step = parseInt(el.getAttribute("data-cal"), 10);
+    state.planAnchor = state.planView === "week"
+      ? addDays(state.planAnchor, 7 * step)
+      : addMonths(state.planAnchor, step);
+    state.slide = step > 0 ? "next" : "prev";
+    render();
+    return;
+  }
+  if ((el = e.target.closest("[data-planview]"))){
+    const view = el.getAttribute("data-planview");
+    if (view !== state.planView){
+      /* 5.8: 월 shows the month the week started in, 주 goes back to this week */
+      state.planAnchor = view === "month" ? state.planAnchor : addDays(state.today, -1);
+      state.planView = view;
+      render();
+    }
+    return;
+  }
+  if (e.target.closest("[data-today]")){
+    state.planAnchor = state.planView === "week" ? addDays(state.today, -1) : state.today;
+    render();
+    return;
+  }
+  if (e.target.closest("[data-cal-add]")){ toast("캘린더 앱에 추가했어요 (시안)"); return; }
+  if (e.target.closest("[data-refresh]")){ startCheck(); return; }
+  if (e.target.closest("[data-alerts]")){ showAlert(); return; }
+
   /* fields */
   if ((el = e.target.closest("[data-status]"))){
     syncInputs();
@@ -1514,6 +1910,7 @@ async function boot(){
   } catch (e) { /* keep the defaults so the splash still shows */ }
   state.form = defaultForm();
   state.majorText = state.form.major;
+  resetPlan();
   state.studentId = readId();
   if (!state.studentId) await newStudent();
   render();
