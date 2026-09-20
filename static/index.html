@@ -1053,7 +1053,7 @@ function homeView(){
     } else if (!g[3].length){
       list += plainCard('<div class="empty tight">조건에 맞는 공지가 없어요</div>');
     }
-    list += groupBox("정보를 더 입력하면 판단할 수 있어요 " + g[3].length + "건", g[3]);
+    list += groupBox("정보를 입력하면 판단할 수 있는 공지 " + g[3].length + "건", g[3]);
     list += groupBox("아직 확인 중인 공지 " + g[4].length + "개", g[4]);
     list += groupBox("조건이 안 맞는 공지 " + g[2].length + "개", g[2]);
   }
