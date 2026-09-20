@@ -35,6 +35,7 @@ S3 kmuct-ht-15-uniq (비공개, 버저닝): secrets/.env, db/kmu.db, release/uni
 | `ec2:ImportKeyPair` 거부 | 키페어는 AWS가 만든 것만. CI 키는 `authorized_keys`에 직접 추가 |
 | `ssm:GetParameter`, IAM 쓰기, IAM 정책 읽기 거부 | 롤 권한은 인스턴스에서 직접 확인함: 팀 버킷 읽기·쓰기·삭제 가능 |
 | AMI에 code-server(9080) 포함 | 보안 그룹에서 열지 않는다 |
+| llm-x 앞 Cloudflare가 EC2 발 기본 UA(`python-httpx`, `curl`) 요청을 챌린지(403)로 막음 | `app/llm.py`가 브라우저형 `User-Agent`를 붙인다. 한국 IP는 UA와 무관하게 통과하므로 로컬에선 재현 안 됨. 서버에서 확인: `curl -A "Mozilla/5.0" -H "Authorization: Bearer <키>" -X POST https://llm-x.net/api/external/conversations -d '{"title":"x"}'` → 201 |
 | 학교망 아웃바운드 22 차단 | 교내에서는 EC2에 SSH 불가. CloudShell(콘솔 하단)에서 `ssh -i ~/kmuct-ht-15-uniq.pem ec2-user@35.172.129.104` |
 
 ## 당일 순서

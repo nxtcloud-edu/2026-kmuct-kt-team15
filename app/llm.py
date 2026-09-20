@@ -37,7 +37,12 @@ def request_args(messages):
         "web_search": False,
         "thinking_enabled": thinking,
     }
-    return base + "/chat", {"Authorization": "Bearer " + key}, body
+    # Cloudflare in front of llm-x answers a challenge page (403) to httpx's default
+    # User-Agent when the call comes from a cloud IP such as the EC2; a browser-like
+    # UA passes. Korean home/campus IPs pass either way, which hid this in rehearsal.
+    headers = {"Authorization": "Bearer " + key,
+               "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"}
+    return base + "/chat", headers, body
 
 
 def new_state():
