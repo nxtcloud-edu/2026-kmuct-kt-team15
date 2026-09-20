@@ -634,3 +634,33 @@ def test_at_most_three_gateway_calls_run_at_once(world, monkeypatch):
     runs = asyncio.run(go())
     assert live["peak"] <= chat.CONCURRENCY
     assert [run[-1]["text"] for run in runs] == ["네, 있어요."] * 4
+
+
+# ------------------------------------------------ 9/20: total, and one turn of memory
+
+
+def test_search_reports_the_total_beyond_the_page(world, monkeypatch):
+    for i in range(12):
+        add_card(world["path"], f"a:{i}", apply_end=f"2026-03-{20 + i}")
+    conn = db.connect(world["path"])
+    result, detail = chat.tool_search(conn, world["student"], {"query": "", "category": None})
+    conn.close()
+    assert (result["total"], result["shown"], len(result["items"])) == (12, 10, 10)
+    assert detail == "12건 중 10건"
+
+
+def test_the_previous_turn_is_carried_into_the_next_question(world):
+    chat.LAST.clear()
+    add_card(world["path"], "a:1")
+    run(world, "뭐 있어?", fake_llm(tool("search_notices", query=""), answer("하나 있어요.", refs=["a:1"])))
+    chat_fn = fake_llm(answer("그건 a:1이에요."))
+    run(world, "그건 뭐야?", chat_fn)
+    context = chat_fn.calls[0][2]["content"]
+    assert "직전 질문: 뭐 있어?" in context
+    assert "직전 답: 하나 있어요." in context
+    assert "직전 답의 공지 key: a:1" in context
+    # Another student never sees it, and the first question of a session has none.
+    other = student(world["path"], {}, student_id="s2")
+    chat_fn = fake_llm(answer())
+    asyncio.run(chat.run_question(other, "뭐 있어?", chat_fn).__anext__())
+    assert "직전 질문" not in chat_fn.calls[0][2]["content"]

@@ -59,7 +59,7 @@ INSTRUCTIONS = """너는 국민대 학생의 공지 질문에 답하는 에이�
 - 학생 정보를 고치자고 제안할 때: {"answer": "<제안>", "confirm_update": {"<정보 키>": "<값>"}, "refs": [], "found": true}
 
 도구는 넷이다.
-- search_notices(query, category): 공지를 검색한다. query가 비면 모집 중인 공지를 마감순으로 준다.
+- search_notices(query, category): 공지를 검색한다. query가 비면 모집 중인 공지를 마감순으로 준다. 결과의 items는 상위 일부이고, 맞는 공지 전체 수는 total이다.
 - get_profile(): 학생 정보를 본다.
 - check_eligibility(notice_keys, overrides, category): 조건을 대조한다. notice_keys는 도구 결과에 나온 key 1~10개다. notice_keys를 빼면 모집 중인 공지 전체에서 지원 가능한 것을 준다. "학점이 더 높으면"처럼 가정하는 질문은 overrides에 넣는다.
 - get_plan(): 학생이 계획에 넣은 공지와 남은 할 일을 본다.
@@ -71,6 +71,9 @@ INSTRUCTIONS = """너는 국민대 학생의 공지 질문에 답하는 에이�
 - 지원 가능한 공지가 하나도 없으면 없다고 답한다. 이것도 found: true다.
 - 도구 결과로도 답을 찾을 수 없을 때만 found: false를 낸다.
 - search_notices로 공지를 찾았으면 답하기 전에 그 key들로 check_eligibility를 부른다. 대조하지 않은 공지는 지원할 수 있다고 말하지 말라.
+- 공지 수를 말할 때는 total을 쓴다. items의 개수를 전체 개수처럼 말하지 말라.
+- "전부", "전체", "다", "목록"처럼 지원할 수 있는 공지를 모두 달라는 질문에 검색어가 없으면 notice_keys 없이 check_eligibility를 부른다.
+- 직전 질문과 답이 주어지면 "나머지", "그건", "그중"처럼 이어지는 질문은 그 문맥으로 해석한다. 그래도 지원 가능 여부와 refs는 이번 질문의 도구 결과로만 정한다.
 - 답은 한국어로만 쓴다. 한자, 가나 같은 다른 문자를 섞지 말라.
 - 답은 한국어 두세 문장이다. 위 예시의 값은 보기일 뿐이니 그대로 옮기지 말라."""
 
@@ -226,18 +229,22 @@ def tool_search(conn, student, args):
     if args["category"]:
         rows = [r for r in rows if r["category"] == args["category"]]
     if args["query"]:
-        ranked = bm25(rows, args["query"])[:SEARCH_MAX]
+        ranked = bm25(rows, args["query"])
         by_key = {r["notice_key"]: r for r in rows}
-        picked = [by_key[key] for key, _ in ranked]
+        matched = [by_key[key] for key, _ in ranked]
     else:
         # SPEC 10.1 C1: an empty query gives the open cards by deadline, the card
         # closing today included, and never a closed one.
-        picked = sorted(
+        matched = sorted(
             (r for r in rows if is_open(r, today)),
             key=lambda r: (r["apply_end"], r["notice_key"]),
-        )[:SEARCH_MAX]
-    items = [brief(row, today) for row in picked]
-    return {"items": items}, f"카드 {len(items)}건"
+        )
+    items = [brief(row, today) for row in matched[:SEARCH_MAX]]
+    # total says how many cards matched, so the model never reads the page size as
+    # the whole: on 9/20 it answered "모집 중인 공지는 총 10건" from a 10-card page.
+    result = {"items": items, "total": len(matched), "shown": len(items)}
+    detail = f"카드 {len(items)}건" if len(matched) == len(items) else f"{len(matched)}건 중 {len(items)}건"
+    return result, detail
 
 
 def tool_profile(conn, student, args):
@@ -364,9 +371,14 @@ def short(result):
     return text if len(text) <= RESULT_MAX else text[:RESULT_MAX] + " …(줄임)"
 
 
-def context_message(today, calls, notes, last_call):
-    """The third message: today, this question's tool results, then what to do next."""
+def context_message(today, calls, notes, last_call, previous=None):
+    """The third message: today, the previous turn, this question's tool results, then what to do next."""
     parts = [f"오늘은 {today}이다."]
+    if previous:
+        lines = ["직전 질문: " + previous["question"], "직전 답: " + previous["answer"]]
+        if previous["keys"]:
+            lines.append("직전 답의 공지 key: " + ", ".join(previous["keys"]))
+        parts.append(chr(10).join(lines))
     if calls:
         parts.append("이번 질문에서 부른 도구와 결과다.")
         for index, call in enumerate(calls, 1):
@@ -451,12 +463,13 @@ async def run_question(student, question, chat_fn=None):
         today = main.today()
         calls, notes, seen_keys = [], [], []
         broken, nudged, reply = 0, False, None
+        previous = LAST.get(student["id"])  # SPEC 8.4: one turn of memory, this process only
         for turn in range(1, BUDGET + 1):
             last_call = turn == BUDGET
             messages = [
                 {"role": "system", "content": INSTRUCTIONS},
                 {"role": "user", "content": question},
-                {"role": "system", "content": context_message(today, calls, notes, last_call)},
+                {"role": "system", "content": context_message(today, calls, notes, last_call, previous)},
             ]
             notes = []
             started = time.monotonic()
@@ -512,9 +525,12 @@ async def run_question(student, question, chat_fn=None):
             break
 
         if reply is None:
-            yield miss_event(conn, student, question)
+            event = miss_event(conn, student, question)
         else:
-            yield answer_event(conn, student, reply, seen_keys)
+            event = answer_event(conn, student, reply, seen_keys)
+        LAST[student["id"]] = {"question": question, "answer": event["text"][:LAST_ANSWER_MAX],
+                               "keys": [r["key"] for r in event.get("refs") or []]}
+        yield event
     finally:
         conn.close()
 
@@ -525,6 +541,10 @@ SEM = asyncio.Semaphore(CONCURRENCY)
 # ponytail: the rate-limit window lives in this process's memory, so a restart
 # forgets it and a second worker would not share it; move it to the DB if we scale.
 ASKS = {}
+# ponytail: the previous turn per student lives in this process's memory like ASKS,
+# so a restart forgets it; keep it in the student row if that ever matters.
+LAST = {}
+LAST_ANSWER_MAX = 300  # characters of the previous answer carried into the next question
 
 
 async def guarded_chat(messages):
