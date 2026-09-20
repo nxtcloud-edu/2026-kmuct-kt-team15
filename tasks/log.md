@@ -27,7 +27,7 @@
 ## 막힘
 
 <!-- 작업 id, 무엇이 막혔나, 시도한 것, 사람이 정할 것 -->
-
+- T17 (D 레인): 서브에이전트가 "커밋 `b0a5ee6`" 이라고 보고했는데 그 커밋이 레포에 없었다(`git cat-file -t` → Not a valid object name, reflog에도 없음). `app/interpret.py` 660줄만 untracked로 남고 `tests/test_interpret.py`와 SPEC·todo 수정은 없었다. 보고를 받은 뒤 그 worktree에 `git merge --ff-only main`을 돌렸는데, 알고 보니 에이전트가 아직 돌고 있었다. **교훈: 레인 worktree를 fast-forward 하기 전에 그 에이전트가 정말 끝났는지 확인한다.** 같은 에이전트에게 실제 상태를 알려 주고 다시 맡겼다.
 ## 사람 확인 대기
 
 <!-- 작업 id 또는 체크포인트, 확인할 것 -->
