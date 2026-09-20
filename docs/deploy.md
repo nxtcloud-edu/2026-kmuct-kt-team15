@@ -41,7 +41,7 @@ S3 kmuct-ht-15-uniq (비공개, 버저닝): secrets/.env, db/kmu.db, release/uni
 ## 당일 순서
 
 1. **DB 올리기** (노트북, 1회): `aws s3 cp data/kmu.db s3://kmuct-ht-15-uniq/db/kmu.db`. 시연용 사본이면 그 파일을 `db/kmu.db` 이름으로. 서버에 이미 DB가 있으면 배포는 덮어쓰지 않는다 → 새 DB로 갈아끼우려면 CloudShell → ssh → `sudo FORCE_DB=1 S3_BUCKET=kmuct-ht-15-uniq bash /opt/uniq/scripts/deploy.sh`
-2. **`.env` 올리기** (llm-x 키가 생기면): `aws s3 cp .env s3://kmuct-ht-15-uniq/secrets/.env` 후 배포 한 번(Actions → Deploy → Run workflow). `.env`는 배포마다 S3에서 새로 받는다. `DB_PATH`는 스크립트가 절대경로로 고친다
+2. **`.env` 올리기** (대화 탭은 `LLM_PROVIDER=claude` + `CLAUDE_API_KEY`(대회 게이트웨이 키) + `CLAUDE_MODEL=bedrock-claude-sonnet-5`. llm-x로 되돌리려면 `LLM_PROVIDER`를 지운다): `aws s3 cp .env s3://kmuct-ht-15-uniq/secrets/.env` 후 배포 한 번(Actions → Deploy → Run workflow). `.env`는 배포마다 S3에서 새로 받는다. `DB_PATH`는 스크립트가 절대경로로 고친다
 3. **코드**: `main`에 push. Actions 탭에서 초록불 확인 → `http://35.172.129.104:8000/`
 4. **롤백**: 이전 커밋을 `main`에 push하거나, CloudShell → ssh → `aws s3 cp s3://kmuct-ht-15-uniq/release/uniq-<sha>.tar.gz /tmp/u.tar.gz && sudo CODE_TAR=/tmp/u.tar.gz S3_BUCKET=kmuct-ht-15-uniq bash /opt/uniq/scripts/deploy.sh`
 

@@ -125,11 +125,55 @@ def parse_lines(lines):
     return finish(state)
 
 
+# ---------------------------------------------------------------- Claude (A/B, 9/20)
+
+# The contest gateway (OpenAI-compatible, Claude behind Bedrock aliases; SPEC 3, 8.4).
+# LLM_PROVIDER=claude turns it on; CLAUDE_API_KEY and CLAUDE_MODEL pick the key and the
+# alias. Same contract as chat(). Chosen on 9/20 after an A/B on the rehearsal server:
+# Qwen via llm-x dropped the search -> check_eligibility chain on 2 of 2 deadline
+# questions, Claude Sonnet 5 kept it on 2 of 2. llm-x stays as the fallback path.
+CLAUDE_BASE_URL = "https://52.79.201.46/v1"
+CLAUDE_MODEL = "bedrock-claude-sonnet-5"
+
+
+def claude_request_args(messages):
+    """URL, headers and body for one gateway call; the Qwen-only `/no_think` tail is dropped."""
+    base = (os.environ.get("CLAUDE_BASE_URL") or CLAUDE_BASE_URL).rstrip("/")
+    key = (os.environ.get("CLAUDE_API_KEY") or "").strip()
+    if not key:
+        raise RuntimeError("claude is not configured: set CLAUDE_API_KEY")
+    body = {
+        "model": os.environ.get("CLAUDE_MODEL") or CLAUDE_MODEL,
+        "messages": [{"role": m["role"], "content": m["content"].removesuffix("/no_think").rstrip()}
+                     for m in messages],
+        "max_tokens": 1024,
+        "stream": False,
+    }
+    return base + "/chat/completions", {"Authorization": "Bearer " + key}, body
+
+
+async def claude_chat(messages, transport=None):
+    url, headers, body = claude_request_args(messages)
+    started = time.monotonic()
+    async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
+        resp = await client.post(url, json=body, headers=headers)
+        resp.raise_for_status()
+    seconds = time.monotonic() - started
+    data = resp.json()
+    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    usage = data.get("usage") or {}
+    out = usage.get("completion_tokens")
+    return {"text": text, "input_tokens": usage.get("prompt_tokens"), "output_tokens": out,
+            "tps": round(out / seconds, 1) if out and seconds else None, "seconds": round(seconds, 2)}
+
+
 async def chat(messages, transport=None):
     """One gateway call. Returns {text, input_tokens, output_tokens, tps, seconds}.
 
     `transport` is for tests (httpx.MockTransport); production leaves it None.
     """
+    if os.environ.get("LLM_PROVIDER") == "claude":
+        return await claude_chat(messages, transport)
     url, headers, body = request_args(messages)
     state = new_state()
     started = time.monotonic()

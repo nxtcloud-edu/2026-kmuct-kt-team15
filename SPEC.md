@@ -97,6 +97,8 @@ python -m app.collector --schedule 3600               # 주기 수집
 | `DB_PATH` | `data/kmu.db` | |
 | `DEMO_TODAY` | `2026-03-16` | 모든 날짜 계산의 "오늘". 3/16은 월요일 |
 | `LLM_BASE_URL`, `LLM_API_KEY` | | llm-x 게이트웨이. 서버에만 둔다 |
+| `LLM_PROVIDER` | `claude` | 대화 탭이 부르는 모델. `claude`면 아래 대회 게이트웨이, 아니면 llm-x (9/20 결정) |
+| `CLAUDE_API_KEY`, `CLAUDE_MODEL` | `bedrock-claude-sonnet-5` | 대회 게이트웨이(`https://52.79.201.46/v1`, OpenAI 호환)의 키와 Claude 별칭. `CLAUDE_BASE_URL`로 주소를 바꿀 수 있다 |
 | `LLM_THINKING` | `0` | Qwen3 thinking 모드. 대화는 끈다 |
 | `ADMIN_PASSWORD` | | `/admin` HTTP Basic 비밀번호 (2등급) |
 
@@ -625,6 +627,8 @@ UI 시안의 `missing`(입력 안 함)과 `unknown`(기준 확인 필요)은 화
 - 새 공지 확인은 홈의 "공지 새로고침" 알약 버튼으로만 한다. UI (2)에서 내 정보의 "새 공지 확인하기" 버튼이 빠졌다.
 
 ### 8.4 `chat` (1등급)
+
+**대회 게이트웨이의 Claude (`app/llm.py`, 9/20 결정).** `LLM_PROVIDER=claude`면 `chat()`은 `POST {CLAUDE_BASE_URL}/chat/completions`(OpenAI 호환, `Authorization: Bearer {CLAUDE_API_KEY}`, `{"model": CLAUDE_MODEL, "messages", "max_tokens": 1024, "stream": false}`)를 부르고 `choices[0].message.content`와 `usage`를 같은 `{text, input_tokens, output_tokens, tps, seconds}`로 돌려준다. 메시지 순서는 아래와 같고 Qwen 전용 `/no_think`만 뗀다. 리허설 서버 A/B(9/20): 마감 질문에서 Qwen은 검색→대조 체인을 2/2 끊었고 Claude Sonnet 5는 2/2 이어갔다. 아래 llm-x 경로는 그대로 두고 `.env`로 되돌린다.
 
 **llm-x 게이트웨이 (`app/llm.py`).** 파일럿에서 잰 특성이다.
 - **요청:** `POST {LLM_BASE_URL}/chat`, 헤더 `Authorization: Bearer {LLM_API_KEY}`.

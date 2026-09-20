@@ -180,3 +180,39 @@ def test_chat_raises_when_the_stream_stops_before_done(monkeypatch):
 def test_chat_raises_http_error_on_a_gateway_status(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         run_chat(monkeypatch, ["data: [DONE]"], status=502)
+
+
+# ------------------------------------------------ 9/20: the contest gateway (Claude)
+
+
+def test_claude_path_posts_openai_shape_and_drops_no_think(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("CLAUDE_API_KEY", "sk-test")
+    monkeypatch.setenv("CLAUDE_MODEL", "bedrock-claude-sonnet-5")
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"role": "assistant", "content": '{"answer": "네"}'}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 7}})
+
+    messages = [{"role": "system", "content": "지시"}, {"role": "user", "content": "질문"},
+                {"role": "system", "content": "오늘은 2026-03-16이다.\n/no_think"}]
+    result = asyncio.run(llm.chat(messages, transport=httpx.MockTransport(handler)))
+    assert seen["url"] == "https://52.79.201.46/v1/chat/completions"
+    assert seen["auth"] == "Bearer sk-test"
+    assert seen["body"]["model"] == "bedrock-claude-sonnet-5"
+    assert seen["body"]["stream"] is False
+    assert [m["role"] for m in seen["body"]["messages"]] == ["system", "user", "system"]
+    assert seen["body"]["messages"][2]["content"] == "오늘은 2026-03-16이다."
+    assert (result["text"], result["input_tokens"], result["output_tokens"]) == ('{"answer": "네"}', 40, 7)
+
+
+def test_claude_path_needs_its_key(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        llm.claude_request_args([{"role": "user", "content": "x"}])
