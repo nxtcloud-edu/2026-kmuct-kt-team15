@@ -253,23 +253,28 @@ def pick_alt(items, item):
     return plain[0] if plain else None
 
 
+def detail_body(conn, student, row, item, alt):
+    """SPEC 7 상세 = a list item plus url, posted_date, fields, tasks, alt."""
+    detail = dict(item)
+    detail.update({
+        "url": row["notice_url"],
+        "posted_date": row["posted_date"],
+        "fields": json.loads(row["fields"]),
+        "tasks": tasks_of(conn, student["id"], item["key"]),
+        "alt": alt,
+    })
+    return detail
+
+
 def detail_of(conn, student, key):
-    """SPEC 7 상세 = a list item plus url, posted_date, fields, tasks, alt. 404 when hidden."""
+    """The detail of one card. A card outside the list is a 404 (SPEC 7)."""
     rows = visible_rows(conn, student)
     row = next((r for r in rows if r["notice_key"] == key), None)
     if row is None:
         raise HTTPException(status_code=404, detail="unknown notice")
     items = notice_items(conn, student, rows)
     item = next(i for i in items if i["key"] == key)
-    detail = dict(item)
-    detail.update({
-        "url": row["notice_url"],
-        "posted_date": row["posted_date"],
-        "fields": json.loads(row["fields"]),
-        "tasks": tasks_of(conn, student["id"], key),
-        "alt": pick_alt(items, item),
-    })
-    return detail
+    return detail_body(conn, student, row, item, pick_alt(items, item))
 
 
 def highlights_of(text, source_id, conditions):
@@ -453,3 +458,112 @@ def ask(field: str | None = None, student=Depends(current_student)):
         return judge.ask_back(cards, student["profile"], field)
     except ValueError as error:
         bad(str(error))
+
+
+@app.get("/api/plan")
+def get_plan(student=Depends(current_student)):
+    """SPEC 7: the planned cards that are still in the list, by deadline. `alt` is null."""
+    conn = db.connect()
+    try:
+        rows = {r["notice_key"]: r for r in visible_rows(conn, student)}
+        items = notice_items(conn, student, list(rows.values()))
+        planned = sorted(
+            (i for i in items if i["planned"]), key=lambda i: (i["apply_end"], i["key"])
+        )
+        return {
+            "items": [
+                detail_body(conn, student, rows[item["key"]], item, None) for item in planned
+            ]
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/api/plan/{key}", status_code=204)
+def add_to_plan(key: str, student=Depends(current_student)):
+    """SPEC 8.2: the server judges the card again, and 409s when it is not eligible."""
+    conn = db.connect()
+    try:
+        row = next((r for r in visible_rows(conn, student) if r["notice_key"] == key), None)
+        if row is None:
+            raise HTTPException(status_code=404, detail="unknown notice")
+        card = {"conditions": json.loads(row["conditions"])}
+        if not judge.judge_notice(card, student["profile"])["eligible"]:
+            raise HTTPException(status_code=409, detail="not eligible for this notice")
+        with conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO plan (student_id, notice_key, added_at) VALUES (?, ?, ?)",
+                (student["id"], key, today()),
+            )
+    finally:
+        conn.close()
+
+
+@app.delete("/api/plan/{key}", status_code=204)
+def remove_from_plan(key: str, student=Depends(current_student)):
+    """204 even when the card was never in the plan (SPEC 7)."""
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "DELETE FROM plan WHERE student_id = ? AND notice_key = ?", (student["id"], key)
+        )
+    conn.close()
+
+
+@app.put("/api/tasks/{task_id}", status_code=204)
+def set_task(task_id: int, body: dict = Body(...), student=Depends(current_student)):
+    """SPEC 7: a task of any card can be checked, planned or not. An unknown id is a 404."""
+    done = body.get("done")
+    if not isinstance(done, bool):
+        bad("done takes true or false")
+    conn = db.connect()
+    try:
+        if conn.execute("SELECT id FROM task_template WHERE id = ?", (task_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="unknown task")
+        with conn:
+            if done:
+                conn.execute(
+                    "INSERT OR IGNORE INTO task_done (student_id, task_id) VALUES (?, ?)",
+                    (student["id"], task_id),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM task_done WHERE student_id = ? AND task_id = ?",
+                    (student["id"], task_id),
+                )
+    finally:
+        conn.close()
+
+
+@app.get("/api/alerts")
+def get_alerts(student=Depends(current_student)):
+    """SPEC 7, 8.1: the three alert kinds, in `new`, `deadline`, `today` order."""
+    conn = db.connect()
+    try:
+        rows = {r["notice_key"]: r for r in visible_rows(conn, student)}
+        feed = [
+            dict(
+                item,
+                conditions=json.loads(rows[item["key"]]["conditions"]),
+                tasks=tasks_of(conn, student["id"], item["key"]) if item["planned"] else [],
+            )
+            for item in notice_items(conn, student, list(rows.values()))
+        ]
+    finally:
+        conn.close()
+    return judge.alerts(feed, student["profile"], today())
+
+
+@app.post("/api/reveal-new")
+def reveal_new(student=Depends(current_student)):
+    """SPEC 7: show this student the demo_new cards. The second call gives nothing."""
+    if student["revealed_new"]:
+        return {"items": []}
+    conn = db.connect()
+    try:
+        with conn:
+            conn.execute("UPDATE student SET revealed_new = 1 WHERE id = ?", (student["id"],))
+        student["revealed_new"] = 1
+        return {"items": [item for item in notice_items(conn, student) if item["is_new"]]}
+    finally:
+        conn.close()

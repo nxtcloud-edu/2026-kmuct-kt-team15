@@ -186,21 +186,23 @@
 
 ## T08 계획, 할 일, 알림, 새 공지 API
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 4분
 
 **설명.** 학생별 상태를 바꾸는 나머지 API다. 계획 넣기·빼기, 할 일 체크, 알림, 새 공지 공개를 만든다.
 
 **읽을 곳** SPEC 7 (표, 알림 `kind`), 8.1 (알림), 8.2, 10.1 A5, A6, A8, A13(알림)
 
 **완료 조건**
-- [ ] 다음 API가 7절대로 동작한다: `GET·POST·DELETE /api/plan`, `PUT /api/tasks/{id}`. 지원 불가 공지를 계획에 넣으면 409다. `/api/plan`의 상세는 `alt`가 null이다.
-- [ ] `GET /api/alerts`는 T05 알림을 `kind`와 함께 돌려준다.
-- [ ] `POST /api/reveal-new`는 그 학생에게만 `demo_new` 카드를 공개한다. 두 번째 호출은 빈 배열이다. 다른 학생의 목록은 바뀌지 않는다.
+- [x] 다음 API가 7절대로 동작한다: `GET·POST·DELETE /api/plan`, `PUT /api/tasks/{id}`. 지원 불가 공지를 계획에 넣으면 409다. `/api/plan`의 상세는 `alt`가 null이다.
+- [x] `GET /api/alerts`는 T05 알림을 `kind`와 함께 돌려준다.
+- [x] `POST /api/reveal-new`는 그 학생에게만 `demo_new` 카드를 공개한다. 두 번째 호출은 빈 배열이다. 다른 학생의 목록은 바뀌지 않는다.
 
 **검증**
-- [ ] `pytest -q tests/test_api.py`
+- [x] `pytest -q tests/test_api.py`
   - 계획 넣기(409 포함) → 할 일 체크 → 새로고침 뒤에도 유지되는지 확인한다.
   - 학생 둘이 서로 독립인지 확인한다.
+
+**결과.** `app/main.py`에 `GET·POST·DELETE /api/plan`, `PUT /api/tasks/{id}`, `GET /api/alerts`, `POST /api/reveal-new`을 더했다. 계획 넣기는 서버에서 `judge.judge_notice`로 다시 판정해 지원 불가면 409("확인 필요"도 409), 목록 밖 카드는 404, 다시 넣어도 204다. `GET /api/plan`은 지금 목록에 보이는 계획 카드만 마감순으로 주고 `alt`는 늘 null이다(상세 만들기는 `detail_body`로 뽑아 `detail_of`와 함께 쓴다). 알림은 `judge.alerts`에 목록 항목 + `conditions`·`tasks`를 넘겨 그대로 돌려준다(계산을 다시 쓰지 않았다). `tests/test_api.py` +17개(모두 124개): 10.1 A5(빈 profile·missing·unresolved 모두 409), A6(3/19가 3/30보다 먼저), A8(두 번째 호출은 빈 배열, 다른 학생 목록은 그대로), A13(new → deadline → today 순서와 문구)과 체크 유지·학생 둘의 독립·401을 확인한다.
 
 **의존** T05, T06 · **파일** `app/main.py`, `tests/test_api.py` · **크기** S
 
