@@ -94,19 +94,19 @@
 
 ## T04 조건 판정과 공지 판정
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 12분
 
 **설명.** 판정 엔진의 핵심이다. 조건 하나를 4상태로 판정하고 화면에 나갈 행(칩 문구, 툴팁, 입력하기 문구)을 만든다. 공지 하나의 `eligible`, `gap`, `rows`를 만든다. 순수 함수이고 DB와 LLM을 모른다.
 
 **읽을 곳** SPEC 6.2, 6.4, 7 (목록 항목의 `rows`), 8.1 ("조건 하나의 판정", "공지 판정"), 9 (`at_least` 예시), 10.1 J1~J6, J12~J18
 
 **완료 조건**
-- [ ] 6.2 표의 type 13종이 모두 pass, fail, missing(또는 pending)을 SPEC대로 낸다. 구간 값, OPIc 등급 순서, 여러 어학 시험(`langs`), `topik`, 유학생 판정을 포함한다.
-- [ ] 행이 7절 모양 `{"type", "label", "need", "status", "have", "gap", "chip", "tip", "field", "ask"}`이고, 문구가 8.1과 같다. 8.1에 없는 문구는 UI 시안을 따른다.
-- [ ] 공지 판정: 조건이 모두 pass면 `eligible`이다. `gap`은 첫 번째 비통과 조건의 부족분이다. 조건이 없는 카드는 `eligible`이다.
+- [x] 6.2 표의 type 13종이 모두 pass, fail, missing(또는 pending)을 SPEC대로 낸다. 구간 값, OPIc 등급 순서, 여러 어학 시험(`langs`), `topik`, 유학생 판정을 포함한다.
+- [x] 행이 7절 모양 `{"type", "label", "need", "status", "have", "gap", "chip", "tip", "field", "ask"}`이고, 문구가 8.1과 같다. 8.1에 없는 문구는 UI 시안을 따른다.
+- [x] 공지 판정: 조건이 모두 pass면 `eligible`이다. `gap`은 첫 번째 비통과 조건의 부족분이다. 조건이 없는 카드는 `eligible`이다.
 
 **검증**
-- [ ] `pytest -q tests/test_judge.py` (parametrize 표. 10.1 J줄을 먼저 옮긴다)
+- [x] `pytest -q tests/test_judge.py` (parametrize 표. 10.1 J줄을 먼저 옮긴다)
 
 **의존** 없음 · **파일** `app/judge.py`, `tests/test_judge.py` · **크기** M
 
