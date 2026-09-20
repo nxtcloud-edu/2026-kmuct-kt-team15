@@ -682,6 +682,7 @@ UI 시안의 `missing`(입력 안 함)과 `unknown`(기준 확인 필요)은 화
   - `step`은 도구가 끝난 뒤에만 오므로 모두 완료 모양으로 그린다. 진행 중 표시는 "생각하는 중" 머리글이다.
   - 단계가 0개인 답(정보 수정 제안, 오류)은 "N단계로 확인했어요" 머리글을 숨긴다.
   - 스트림이 끊기거나 4xx/5xx면 `error` 이벤트와 같은 문구의 말풍선을 띄운다.
+- 응답 미디어 타입은 `application/x-ndjson`이다. 라우터는 `app/chat.py`에 두고 `app/main.py` 맨 끝 두 줄이 연결한다. `app/chat.py`는 맨 끝 줄에서 `app.main`을 import한다(그래서 어느 모듈을 먼저 import해도 라우터가 다 만들어진 뒤에 연결된다). 이 순서 때문에 `/api/chat`은 `Depends(current_student)` 대신 헤더를 직접 읽어 `current_student`를 부른다.
 
 **외부 사용자 대비.**
 - LLM 동시 실행은 전체 3개다(`asyncio.Semaphore`). 질문이 아니라 llm-x 호출 하나마다 잡는다.

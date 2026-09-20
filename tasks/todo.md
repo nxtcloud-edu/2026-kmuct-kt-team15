@@ -340,20 +340,22 @@
 
 ## T14 대화 API와 사용량 제한
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 14분
 
 **설명.** 에이전트를 `/api/chat` NDJSON 스트림으로 연다. 외부 사용자가 몰려도 서버가 버티게 제한을 건다.
 
 **읽을 곳** SPEC 8.4 ("NDJSON 이벤트", "외부 사용자 대비"), 10.1 C7~C9
 
 **완료 조건**
-- [ ] 도구 호출이 끝날 때마다 `step` 이벤트를, 마지막에 `answer` 이벤트를 보낸다. `refs`는 목록 항목 모양(`rows` 포함)이다.
-- [ ] 제한을 건다: 300자 초과는 422, 동시 실행 3개, 학생당 분당 5개, 전체 60초. 넘으면 `error` 이벤트를 보낸다.
-- [ ] `app/main.py` 끝에 라우터를 연결한다(import 한 줄과 연결 한 줄. `app.chat`이 `app.main`을 import하므로 맨 끝에 둔다).
+- [x] 도구 호출이 끝날 때마다 `step` 이벤트를, 마지막에 `answer` 이벤트를 보낸다. `refs`는 목록 항목 모양(`rows` 포함)이다.
+- [x] 제한을 건다: 300자 초과는 422, 동시 실행 3개, 학생당 분당 5개, 전체 60초. 넘으면 `error` 이벤트를 보낸다.
+- [x] `app/main.py` 끝에 라우터를 연결한다(import 한 줄과 연결 한 줄. `app.chat`이 `app.main`을 import하므로 맨 끝에 둔다).
 
 **검증**
-- [ ] `pytest -q tests/test_chat.py`: 301자, 분당 6번째 질문, 가짜 LLM 시간 초과를 확인한다.
-- [ ] 수동: 키를 비우고 uvicorn으로 띄워 `/api/notices` 200, 301자 422, `/api/chat`이 `error` 이벤트 한 줄인지 확인한다.
+- [x] `pytest -q tests/test_chat.py`: 301자, 분당 6번째 질문, 가짜 LLM 시간 초과를 확인한다.
+- [x] 수동: 키를 비우고 uvicorn으로 띄워 `/api/notices` 200, 301자 422, `/api/chat`이 `error` 이벤트 한 줄인지 확인한다. (8822 포트, `c-web.db` 사본: 목록 200·59건, 301자 422, 300자와 실제 질문 모두 `error` 한 줄, 6번째 질문은 LLM을 부르지 않고 같은 줄)
+
+**결과.** `app/chat.py` 아래쪽에 `/api/chat` 라우터를 더했다: `take_slot`(분당 5개, 거절은 세지 않음), `guarded_chat`(`asyncio.Semaphore(3)`), `stream`(`asyncio.wait_for`로 질문 전체 60초, 실패·시간 초과·DB 오류를 로그에 남기고 `error` 한 줄로 끝냄), `ask`(300자·공백·비문자열 422). `app/main.py`는 맨 끝 두 줄만 더했다. `app/chat.py`가 `app.main`을 **맨 끝 줄에서** import하고 라우트는 헤더를 직접 읽는다(`Depends(current_student)`를 쓰면 순환 import 때문에 `app.chat`을 먼저 import한 순간 라우터가 빈 채로 연결된다). 테스트 17개를 더해 10.1 C7~C9와 422·401·타임아웃·DB 오류를 확인했다.
 
 **의존** T13 · **파일** `app/chat.py`, `app/main.py`, `tests/test_chat.py` · **크기** S
 

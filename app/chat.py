@@ -3,24 +3,35 @@
 The model only picks tools and writes the answer; this module runs the tools over
 the cards and `app.judge`, and rules -- not the model -- decide which keys may be
 cited. The gateway has no tool calling, so one JSON object per reply is the whole
-protocol. T14 wraps this loop in the /api/chat NDJSON route.
+protocol. The loop is served as the /api/chat NDJSON stream at the bottom.
 """
 
+import asyncio
 import json
+import logging
 import math
 import time
 from collections import Counter
 from datetime import date, datetime
 
-from fastapi import HTTPException
+from fastapi import APIRouter, Body, Header, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app import db, judge, llm
-# The cycle is fine because main only imports chat on its last line and this module
-# touches main from inside functions. T14 must define its router above this import,
-# so that `import app.chat` first still finds chat.router when main comes back.
-from app import main
+
+# app.main imports this router on its last line, so this module imports main on its
+# own last line in turn. Whichever of the two is imported first, the router is
+# complete before include_router copies it. Every use of `main` is inside a
+# function, so the late import is enough.
+router = APIRouter()
 
 BUDGET = 5  # LLM calls per question (SPEC 8.4)
+QUESTION_MAX = 300  # characters; the screen sets maxlength=300 as well
+PER_MINUTE = 5  # questions per student
+WINDOW_SECONDS = 60.0
+QUESTION_SECONDS = 60  # the whole question, steps included
+CONCURRENCY = 3  # gateway calls in flight across the server
+ERROR_TEXT = "잠시 후 다시 물어봐 주세요"
 MISS_TEXT = "공지에서 찾을 수 없어요"
 RESULT_MAX = 1200  # a tool result is cut before it goes into the system message
 BODY_MAX = 2000  # ponytail: only the head of a notice body is searched and nothing is
@@ -500,3 +511,81 @@ async def run_question(student, question, chat_fn=None):
             yield answer_event(conn, student, reply, seen_keys)
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------- the route
+
+SEM = asyncio.Semaphore(CONCURRENCY)
+# ponytail: the rate-limit window lives in this process's memory, so a restart
+# forgets it and a second worker would not share it; move it to the DB if we scale.
+ASKS = {}
+
+
+async def guarded_chat(messages):
+    """One gateway call holding one of the three server-wide slots (SPEC 8.4)."""
+    async with SEM:
+        return await llm.chat(messages)
+
+
+def take_slot(student_id, now=None):
+    """Five questions a minute per student. A refused question is not counted."""
+    now = time.monotonic() if now is None else now
+    recent = [when for when in ASKS.get(student_id, []) if now - when < WINDOW_SECONDS]
+    ASKS[student_id] = recent
+    if len(recent) >= PER_MINUTE:
+        return False
+    recent.append(now)
+    return True
+
+
+def ndjson(event):
+    return json.dumps(event, ensure_ascii=False) + "\n"
+
+
+async def stream(student, question, chat_fn=None):
+    """The NDJSON body: a `step` line per tool, then one `answer` or `error` line."""
+    if not take_slot(student["id"]):
+        yield ndjson({"type": "error", "text": ERROR_TEXT})
+        return
+    events = run_question(student, question, chat_fn or guarded_chat)
+    deadline = time.monotonic() + QUESTION_SECONDS
+    try:
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("the question ran past its limit")
+            # The limit is awaited here and not around the yield, so a slow reader
+            # never eats the budget and the steps already sent stay put.
+            try:
+                event = await asyncio.wait_for(events.__anext__(), left)
+            except StopAsyncIteration:
+                break
+            yield ndjson(event)
+    except Exception:
+        # A gateway failure, a DB failure, the 60s limit, anything unexpected: log it
+        # and close with one error line instead of cutting the stream (SPEC 8.4).
+        logging.exception("chat failed for student %s", student["id"])
+        try:
+            await events.aclose()
+        except Exception:
+            logging.exception("closing the agent loop failed")
+        yield ndjson({"type": "error", "text": ERROR_TEXT})
+
+
+@router.post("/api/chat")
+async def ask(body: dict = Body(...), x_student_id: str | None = Header(default=None)):
+    """SPEC 7, 8.4. The only async route; everything else stays sync.
+
+    The header is read here instead of with Depends(main.current_student) because
+    the route is built before the main import at the bottom of this file.
+    """
+    student = main.current_student(x_student_id)
+    question = body.get("message")
+    if not isinstance(question, str) or not question.strip():
+        main.bad("message는 질문 문자열이다")
+    if len(question) > QUESTION_MAX:
+        main.bad(f"message는 {QUESTION_MAX}자 이하다")
+    return StreamingResponse(stream(student, question), media_type="application/x-ndjson")
+
+
+from app import main  # noqa: E402  (see the router comment at the top of the file)

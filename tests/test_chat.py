@@ -1,4 +1,4 @@
-"""T13: the ask agent loop (SPEC 8.4, 10.1 C1~C6).
+"""T13, T14: the ask agent loop and the /api/chat stream (SPEC 8.4, 10.1 C1~C9).
 
 The LLM is a fake that hands back canned replies in order. No network.
 """
@@ -7,8 +7,9 @@ import asyncio
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 
-from app import chat, db
+from app import chat, db, llm
 from test_api import add_card, add_task, gpa_cond, none_cond
 
 TODAY = "2026-03-16"
@@ -21,6 +22,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", path)
     monkeypatch.setenv("DEMO_TODAY", TODAY)
     monkeypatch.setattr(db, "DB_PATH", path)
+    chat.ASKS.clear()  # the rate-limit window is module state (SPEC 8.4)
     db.init(path)
     conn = db.connect(path)
     with conn:
@@ -444,3 +446,191 @@ def test_an_answer_with_no_notice_is_still_found(world):
     assert steps(events)[0]["detail"] == "1건 중 0건 지원 가능"
     assert last(events)["text"] == "지금 지원할 수 있는 공지는 없어요."
     assert misses(world) == []
+
+
+# ------------------------------------------------------------------ the stream
+
+
+@pytest.fixture
+def client(world):
+    from app import main
+
+    with TestClient(main.app) as c:
+        c.headers["X-Student-Id"] = "s1"
+        c.db_path = world["path"]
+        yield c
+
+
+def reply(text):
+    return {"text": text, "input_tokens": 10, "output_tokens": 5, "tps": None,
+            "seconds": 0.01}
+
+
+def gateway(answer_text=None, delay=0.0, raises=None):
+    """A stand-in for llm.chat: search once, then answer (SPEC 8.4 message order)."""
+    async def chat_fn(messages):
+        if raises is not None and chat.FIRST_TOOL_NOTE not in messages[2]["content"]:
+            raise raises
+        if chat.FIRST_TOOL_NOTE in messages[2]["content"]:
+            return reply(tool("search_notices", query=""))
+        if delay:
+            await asyncio.sleep(delay)
+        return reply(answer_text or answer(refs=["a:1"]))
+
+    return chat_fn
+
+
+def ask(client, message="지금 지원할 수 있는 거 있어?"):
+    res = client.post("/api/chat", json={"message": message})
+    lines = [json.loads(line) for line in res.text.splitlines() if line.strip()]
+    return res, lines
+
+
+def test_the_chat_route_needs_a_known_student(world):
+    from app import main
+
+    with TestClient(main.app) as c:
+        assert c.post("/api/chat", json={"message": "안녕"}).status_code == 401
+        c.headers["X-Student-Id"] = "nobody"
+        assert c.post("/api/chat", json={"message": "안녕"}).status_code == 401
+
+
+@pytest.mark.parametrize("message", ["가" * 301, "   ", "", None, 7, ["질문"]])
+def test_a_bad_message_is_422(client, monkeypatch, message):
+    monkeypatch.setattr(llm, "chat", gateway())
+    assert client.post("/api/chat", json={"message": message}).status_code == 422
+
+
+def test_three_hundred_characters_are_accepted(client, monkeypatch):
+    add_card(client.db_path, "a:1")
+    monkeypatch.setattr(llm, "chat", gateway())
+    res, lines = ask(client, "가" * 300)
+    assert res.status_code == 200
+    assert lines[-1]["type"] == "answer"
+
+
+def test_the_stream_is_ndjson_with_steps_then_one_answer(client, monkeypatch):
+    add_card(client.db_path, "a:1", conditions=[gpa_cond(3.0)], apply_end="2026-03-20")
+    monkeypatch.setattr(llm, "chat", gateway())
+    res, lines = ask(client)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("application/x-ndjson")
+    assert [line["type"] for line in lines] == ["step", "answer"]
+    assert lines[0]["title"] == "공지 검색" and lines[0]["detail"] == "카드 1건"
+    answer_line = lines[-1]
+    assert [r["key"] for r in answer_line["refs"]] == ["a:1"]
+    assert answer_line["refs"][0]["rows"][0]["chip"] == "학점 3.0 이상"  # 목록 항목 모양
+    assert answer_line["confirm_update"] is None
+
+
+def test_a_gateway_error_ends_the_stream_with_one_error_line(client, monkeypatch):
+    # C7: an unreadable SSE line is a RuntimeError, and the route turns it into
+    # exactly one error event.
+    add_card(client.db_path, "a:1")
+
+    async def broken(messages):
+        return llm.parse_lines(["data: {not json", "data: [DONE]"])
+
+    monkeypatch.setattr(llm, "chat", broken)
+    res, lines = ask(client)
+    assert res.status_code == 200
+    assert lines == [{"type": "error", "text": chat.ERROR_TEXT}]
+
+
+def test_a_missing_tokens_input_field_ends_the_same_way(client, monkeypatch):
+    # C7, the second line of the table.
+    add_card(client.db_path, "a:1")
+
+    async def broken(messages):
+        return llm.parse_lines(['data: {"event": "tokens_input", "max_input": 32768}',
+                                "data: [DONE]"])
+
+    monkeypatch.setattr(llm, "chat", broken)
+    assert ask(client)[1] == [{"type": "error", "text": chat.ERROR_TEXT}]
+
+
+def test_the_steps_already_sent_survive_a_timeout(client, monkeypatch):
+    add_card(client.db_path, "a:1")
+    monkeypatch.setattr(chat, "QUESTION_SECONDS", 0.2)
+    monkeypatch.setattr(llm, "chat", gateway(delay=5))
+    res, lines = ask(client)
+    assert res.status_code == 200
+    assert [line["type"] for line in lines] == ["step", "error"]
+    assert lines[-1]["text"] == chat.ERROR_TEXT
+
+
+def test_a_db_failure_is_an_error_line_too(client, monkeypatch):
+    # The header is read first, so let that connection through and break the next.
+    opened = {"count": 0}
+    real = db.connect
+
+    def flaky(path=None):
+        opened["count"] += 1
+        if opened["count"] > 1:
+            raise db.sqlite3.OperationalError("unable to open database file")
+        return real(path)
+
+    monkeypatch.setattr(llm, "chat", gateway())
+    monkeypatch.setattr(db, "connect", flaky)
+    assert ask(client)[1] == [{"type": "error", "text": chat.ERROR_TEXT}]
+
+
+def test_the_sixth_question_in_a_minute_is_refused(client, monkeypatch):
+    # C9
+    add_card(client.db_path, "a:1")
+    monkeypatch.setattr(llm, "chat", gateway())
+    for _ in range(chat.PER_MINUTE):
+        assert ask(client)[1][-1]["type"] == "answer"
+    res, lines = ask(client)
+    assert res.status_code == 200  # refused, but not an HTTP error
+    assert lines == [{"type": "error", "text": chat.ERROR_TEXT}]
+    assert len(chat.ASKS["s1"]) == chat.PER_MINUTE  # a refused question is not counted
+
+
+def test_the_window_lets_the_student_back_in_after_a_minute():
+    # C9: 61 seconds later the same student is served again.
+    chat.ASKS.clear()
+    for second in range(chat.PER_MINUTE):
+        assert chat.take_slot("s9", now=second) is True
+    assert chat.take_slot("s9", now=59.9) is False
+    assert chat.take_slot("s9", now=61) is True
+    chat.ASKS.clear()
+
+
+def test_the_limit_is_per_student():
+    chat.ASKS.clear()
+    for second in range(chat.PER_MINUTE):
+        chat.take_slot("one", now=second)
+    assert chat.take_slot("one", now=6) is False
+    assert chat.take_slot("two", now=6) is True
+    chat.ASKS.clear()
+
+
+def test_at_most_three_gateway_calls_run_at_once(world, monkeypatch):
+    # C8: the fourth question waits for a slot and still gets its answer.
+    assert chat.CONCURRENCY == 3
+    live = {"now": 0, "peak": 0}
+
+    async def slow(messages):
+        live["now"] += 1
+        live["peak"] = max(live["peak"], live["now"])
+        await asyncio.sleep(0.05)
+        live["now"] -= 1
+        return reply(answer("네, 있어요."))
+
+    monkeypatch.setattr(llm, "chat", slow)
+    # A fresh semaphore: TestClient gives each test its own event loop and an
+    # asyncio.Semaphore binds to the first loop that has to wait on it.
+    monkeypatch.setattr(chat, "SEM", asyncio.Semaphore(chat.CONCURRENCY))
+
+    async def go():
+        async def one(index):
+            who = student(world["path"], {}, f"c{index}")
+            return [event async for event
+                    in chat.run_question(who, "질문", chat.guarded_chat)]
+
+        return await asyncio.gather(*(one(i) for i in range(4)))
+
+    runs = asyncio.run(go())
+    assert live["peak"] <= chat.CONCURRENCY
+    assert [run[-1]["text"] for run in runs] == ["네, 있어요."] * 4
