@@ -150,7 +150,14 @@ select.inp{appearance:none;-webkit-appearance:none}
 .row .sub{font-size:14px;color:var(--muted);margin-top:2px}
 .row.dim .ttl{color:var(--muted)}
 .row .mchips{margin-top:10px}
-.more{width:100%;text-align:center;padding:14px 0 2px;font-size:14px;color:var(--muted);border-top:1px solid var(--line);margin-top:6px}
+/* SPEC 8.3 묶음 박스: one card per 8.1 group, always open. A row is not a fixed
+   height (the title and the chips both wrap), so four rows cannot be measured;
+   400px is about four, and the row cut in half is the "there is more" signal.
+   ponytail: the scroll box clips a two-line chip tooltip on the top row, since
+   `.tip` opens upward. Flip that one below its chip (measure the chip against
+   the box top when it opens) if it ever bites. */
+.gbox .label{display:block;margin-bottom:4px}
+.glist{max-height:400px;overflow-y:auto;overscroll-behavior:contain}
 
 /* 3. check rows, lists, tables */
 .check{display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left}
@@ -537,7 +544,6 @@ const state = {
   checking: 0,        // 새 공지 확인 progress, 0 = not running
   chat: {items: [], busy: false, draft: ""},   // 5.7, kept across tabs, gone on reload
   cats: [],           // 5.4 category filter. empty = "전체"
-  open: {info: false, wait: false, fail: false},  // home groups 3, 4, 2
   checked: false,     // has "새 공지 확인" run yet (5.4 pill text)
   form: null,         // 5.9 fields, shared by onboarding and 내 정보
   majorText: "",      // what is typed in the 학과 combo (form.major only takes a listed name)
@@ -1017,13 +1023,18 @@ function askCard(){
     + '<button class="tbtn" data-ask-skip="1">모르겠어요</button></div>';
 }
 
-function moreBlock(id, items, text){
+/* SPEC 8.3: each 8.1 group gets its own card, always open. An empty group gets
+   no card. 지원 가능 passes no label -- the 머리 already counts it. */
+function groupBox(label, items){
   if (!items.length) return "";
-  const open = state.open[id];
-  return '<button class="more" data-open="' + id + '" aria-expanded="' + open + '">'
-    + esc(open ? "접기" : text) + '</button>'
-    + (open ? items.map(function (it){ return noticeRow(it, 4); }).join("") : "");
+  return '<div class="card gbox">'
+    + (label ? '<span class="label">' + esc(label) + '</span>' : "")
+    + '<div class="glist">'
+    + items.map(function (it){ return noticeRow(it, 4); }).join("")
+    + '</div></div>';
 }
+
+const plainCard = (inner) => '<div class="card">' + inner + '</div>';
 
 function homeView(){
   const shown = state.notices.filter(catOk);
@@ -1034,18 +1045,18 @@ function homeView(){
 
   let list = "";
   if (!state.noticesLoaded){
-    list = '<div class="empty"></div>';
+    list = plainCard('<div class="empty"></div>');
   } else {
-    if (g[1].length) list += g[1].map(function (it){ return noticeRow(it, 4); }).join("");
+    if (g[1].length) list += groupBox("", g[1]);
     else if (filtered){
-      list += '<div class="empty">선택한 분야에 맞는 공지가 없어요'
-        + '<div style="margin-top:8px"><button class="tbtn" data-cat="">전체 보기</button></div></div>';
+      list += plainCard('<div class="empty">선택한 분야에 맞는 공지가 없어요'
+        + '<div style="margin-top:8px"><button class="tbtn" data-cat="">전체 보기</button></div></div>');
     } else if (!g[3].length){
-      list += '<div class="empty tight">조건에 맞는 공지가 없어요</div>';
+      list += plainCard('<div class="empty tight">조건에 맞는 공지가 없어요</div>');
     }
-    list += moreBlock("info", g[3], "정보를 더 입력하면 판단할 수 있어요 " + g[3].length + "건");
-    list += moreBlock("wait", g[4], "아직 확인 중인 공지 " + g[4].length + "개");
-    list += moreBlock("fail", g[2], "조건이 안 맞는 공지 " + g[2].length + "개");
+    list += groupBox("정보를 더 입력하면 판단할 수 있어요 " + g[3].length + "건", g[3]);
+    list += groupBox("아직 확인 중인 공지 " + g[4].length + "개", g[4]);
+    list += groupBox("조건이 안 맞는 공지 " + g[2].length + "개", g[2]);
   }
 
   return '<div class="screen ground enter"><div class="scroll"><div class="col">'
@@ -1060,7 +1071,7 @@ function homeView(){
     + todoCard()
     + askCard()
     + catsRow()
-    + '<div class="card">' + list + '</div>'
+    + list
     + '</div></div></div>' + tabbar() + '</div>';
 }
 
@@ -1985,12 +1996,6 @@ document.addEventListener("click", function (e){
     return;
   }
   if ((el = e.target.closest("[data-key]"))){ openDetail(el.getAttribute("data-key")); return; }
-  if ((el = e.target.closest("[data-open]"))){
-    const id = el.getAttribute("data-open");
-    state.open[id] = !state.open[id];
-    render();
-    return;
-  }
   if ((el = e.target.closest("[data-cat]"))){
     const cat = el.getAttribute("data-cat");
     if (cat === "") state.cats = [];   // SPEC 8.3: "전체" turns every filter off
