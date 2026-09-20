@@ -36,8 +36,9 @@ MISS_TEXT = "공지에서 찾을 수 없어요"
 SEARCH_MAX = 10  # cards a search returns (SPEC 8.4)
 # A tool result is cut before it goes into the system message. check_eligibility without
 # keys carries up to 20 cards at ~130 chars each; 1200 cut it after 9 and the model then
-# listed 9 of 12 "eligible" cards (checked on the EC2 on 9/20).
-RESULT_MAX = 3000
+# listed 9 of 12 "eligible" cards (checked on the EC2 on 9/20). With keys, 10 cards with
+# their conditions and tasks measured 3924 chars on the demo DB, so 5000 leaves room.
+RESULT_MAX = 5000
 BODY_MAX = 2000  # ponytail: only the head of a notice body is searched and nothing is
 # indexed, so every question rescores every card; build an FTS5 index if it drags.
 K1, B = 1.2, 0.75
@@ -61,7 +62,7 @@ INSTRUCTIONS = """너는 국민대 학생의 공지 질문에 답하는 에이�
 도구는 넷이다.
 - search_notices(query, category): 공지를 검색한다. query가 비면 모집 중인 공지를 마감순으로 준다. 결과의 items는 상위 일부이고, 맞는 공지 전체 수는 total이다.
 - get_profile(): 학생 정보를 본다.
-- check_eligibility(notice_keys, overrides, category): 조건을 대조한다. notice_keys는 도구 결과에 나온 key 1~10개다. notice_keys를 빼면 모집 중인 공지 전체에서 지원 가능한 것을 준다. "학점이 더 높으면"처럼 가정하는 질문은 overrides에 넣는다.
+- check_eligibility(notice_keys, overrides, category): 조건을 대조한다. notice_keys는 도구 결과에 나온 key 1~10개다. notice_keys를 빼면 모집 중인 공지 전체에서 지원 가능한 것을 준다. "학점이 더 높으면"처럼 가정하는 질문은 overrides에 넣는다. notice_keys를 주면 결과마다 그 공지의 준비할 것(tasks: title, due)이 함께 온다.
 - get_plan(): 학생이 계획에 넣은 공지와 남은 할 일을 본다.
 
 규칙
@@ -72,6 +73,7 @@ INSTRUCTIONS = """너는 국민대 학생의 공지 질문에 답하는 에이�
 - 도구 결과로도 답을 찾을 수 없을 때만 found: false를 낸다.
 - search_notices로 공지를 찾았으면 답하기 전에 그 key들로 check_eligibility를 부른다. 대조하지 않은 공지는 지원할 수 있다고 말하지 말라.
 - 공지 수를 말할 때는 total을 쓴다. items의 개수를 전체 개수처럼 말하지 말라.
+- 준비물, 서류, 절차, 언제까지 뭘 해야 하는지 물으면 check_eligibility 결과의 tasks(제목과 due 날짜)로 답한다.
 - "전부", "전체", "다", "목록"처럼 지원할 수 있는 공지를 모두 달라는 질문에 검색어가 없으면 notice_keys 없이 check_eligibility를 부른다.
 - 직전 질문과 답이 주어지면 "나머지", "그건", "그중"처럼 이어지는 질문은 그 문맥으로 해석한다. 그래도 지원 가능 여부와 refs는 이번 질문의 도구 결과로만 정한다.
 - 답은 한국어로만 쓴다. 한자, 가나 같은 다른 문자를 섞지 말라.
@@ -296,6 +298,9 @@ def tool_check(conn, student, args):
                 {"label": r["label"], "need": r["need"], "status": r["status"], "have": r["have"]}
                 for r in verdict["rows"]
             ],
+            # The card's 준비할 것, so "뭘 준비해야 해?" has an answer (9/20 QC on the EC2).
+            "tasks": [{"title": t["title"], "due": t["due"]}
+                      for t in main.tasks_of(conn, student["id"], key)],
         })
         results.append(item)
     good = sum(1 for r in results if r["eligible"])

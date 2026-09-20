@@ -664,3 +664,21 @@ def test_the_previous_turn_is_carried_into_the_next_question(world):
     chat_fn = fake_llm(answer())
     asyncio.run(chat.run_question(other, "뭐 있어?", chat_fn).__anext__())
     assert "직전 질문" not in chat_fn.calls[0][2]["content"]
+
+
+def test_a_keyed_check_carries_the_cards_tasks(world):
+    add_card(world["path"], "a:1")
+    conn = db.connect(world["path"])
+    with conn:
+        conn.execute("INSERT INTO task_template (notice_key, ord, title, due) VALUES ('a:1', 1, '서류 준비', '2026-03-18')")
+        conn.execute("INSERT INTO task_template (notice_key, ord, title, due) VALUES ('a:1', 2, '온라인 신청', '2026-03-20')")
+    result, _ = chat.tool_check(conn, world["student"], chat.normalize_args(
+        "check_eligibility", {"notice_keys": ["a:1"]}))
+    conn.close()
+    assert result["results"][0]["tasks"] == [
+        {"title": "서류 준비", "due": "2026-03-18"}, {"title": "온라인 신청", "due": "2026-03-20"}]
+    # The no-key list stays lean: no tasks there.
+    conn = db.connect(world["path"])
+    listing, _ = chat.tool_check(conn, world["student"], chat.normalize_args("check_eligibility", {}))
+    conn.close()
+    assert all("tasks" not in r for r in listing["results"])
