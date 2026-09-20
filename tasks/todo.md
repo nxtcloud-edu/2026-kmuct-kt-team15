@@ -272,20 +272,22 @@
 
 ## T12 llm-x 클라이언트
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 9분
 
 **설명.** 게이트웨이를 부르는 함수 하나를 만든다. 코드는 가져갈 수 없으니 SPEC에 적힌 프로토콜과 특성만 보고 짠다.
 
 **읽을 곳** SPEC 8.4 ("llm-x 게이트웨이"), 10.1 C7, L1
 
 **완료 조건**
-- [ ] `chat(messages)`가 `{text, input_tokens, output_tokens, tps, seconds}`를 돌려준다. 항상 스트리밍으로 부르고, `web_search`는 끈다.
-- [ ] `input >= max_input`이거나 `error` 이벤트가 오면 예외를 던진다.
-- [ ] 키가 비어 있어도 서버는 뜬다. 키 검사는 import할 때가 아니라 호출할 때 한다.
+- [x] `chat(messages)`가 `{text, input_tokens, output_tokens, tps, seconds}`를 돌려준다. 항상 스트리밍으로 부르고, `web_search`는 끈다.
+- [x] `input >= max_input`이거나 `error` 이벤트가 오면 예외를 던진다.
+- [x] 키가 비어 있어도 서버는 뜬다. 키 검사는 import할 때가 아니라 호출할 때 한다.
 
 **검증**
-- [ ] `pytest -q tests/test_llm.py`: SSE 줄을 파싱하는 함수에 가짜 줄 목록을 넣어 확인한다. 네트워크는 쓰지 않는다.
-- [ ] 수동: `.env`에 실제 키를 넣고 질문 하나를 보낸다.
+- [x] `pytest -q tests/test_llm.py`: SSE 줄을 파싱하는 함수에 가짜 줄 목록을 넣어 확인한다. 네트워크는 쓰지 않는다.
+- [ ] 수동: `.env`에 실제 키를 넣고 질문 하나를 보낸다. → **못 했다.** 자동 실행 모드라 실제 게이트웨이를 부르지 않았다. 사람 확인 대기.
+
+**결과.** `app/llm.py`: `request_args`(URL·헤더·본문, 호출할 때 키를 읽는다), `feed`/`finish`/`parse_lines`(SSE 줄 파싱), `async chat(messages, transport=None)`. 읽을 수 없는 줄, `error` 이벤트, `input >= max_input`, `[DONE]` 없이 끊김은 모두 `RuntimeError`다(10.1 C7). 모르는 이벤트 이름은 무시한다. `tests/test_llm.py` 23개: 가짜 SSE 줄 표와 `httpx.MockTransport`로 요청 형식(10.1 L1)을 네트워크 없이 확인한다. SPEC 8.4의 함수 줄에 호출 시점 키 검사와 `transport`(시험용)를 적었다.
 
 **의존** 없음 · **파일** `app/llm.py`, `tests/test_llm.py` · **크기** S
 
