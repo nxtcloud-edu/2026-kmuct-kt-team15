@@ -385,6 +385,18 @@ def test_detail_adds_url_posted_date_fields_and_tasks(client):
     assert client.get("/api/notices/hq:1").json()["tasks"][0]["done"] is True
 
 
+def test_detail_tasks_come_in_ord_order(client):
+    # SPEC 6.1 task_template.ord, SPEC 7 상세: neither the title, the due date nor the
+    # row id may decide the order, so none of them matches the expected list here.
+    add_card(client.db_path, "hq:1")
+    add_task(client.db_path, "hq:1", "나 서류 준비", "2026-03-12", ord_=3)
+    add_task(client.db_path, "hq:1", "다 신청서 작성", "2026-03-16", ord_=1)
+    add_task(client.db_path, "hq:1", "가 증명서 발급", "2026-03-20", ord_=2)
+    new_student(client)
+    tasks = client.get("/api/notices/hq:1").json()["tasks"]
+    assert [t["title"] for t in tasks] == ["다 신청서 작성", "가 증명서 발급", "나 서류 준비"]
+
+
 def test_detail_of_an_invisible_card_is_404(client):
     add_card(client.db_path, "hq:hidden", hidden=1)
     new_student(client)
@@ -404,6 +416,21 @@ def test_alt_picks_the_earliest_of_the_same_category(client):
     new_student(client)
     client.put("/api/me", json={"gpa": 3.52, "major": "경영학부"})
     assert client.get("/api/notices/hq:fail").json()["alt"]["key"] == "hq:soon"
+
+
+def test_alt_breaks_a_deadline_tie_by_key(client):
+    # SPEC 8.2 "마감이 같으면 key 오름차순으로 앞의 것이다". The NEW card is first in the
+    # list although its key sorts last, so the list order cannot stand in for the rule.
+    add_card(client.db_path, "hq:fail", conditions=[major_cond()], category="장학",
+             apply_end="2026-03-20")
+    add_card(client.db_path, "hq:zeta", category="장학", apply_end="2026-03-18", demo_new=1)
+    add_card(client.db_path, "hq:beta", category="장학", apply_end="2026-03-18")
+    add_card(client.db_path, "hq:gamma", category="장학", apply_end="2026-03-18")
+    new_student(client)
+    client.put("/api/me", json={"major": "경영학부"})
+    client.post("/api/reveal-new")
+    assert keys_of(client) == ["hq:zeta", "hq:beta", "hq:gamma", "hq:fail"]
+    assert client.get("/api/notices/hq:fail").json()["alt"]["key"] == "hq:beta"
 
 
 def test_alt_falls_back_to_a_card_without_conditions(client):
@@ -706,6 +733,47 @@ def test_answering_the_ask_decides_those_rows(client):
     assert items["hq:a"]["rows"][0]["status"] == "fail"
     assert items["hq:b"]["rows"][0]["status"] == "pass"
     assert client.get("/api/ask").json() is None
+
+
+def admission_cond(minimum=2023, maximum=2026):
+    return {"id": "c1", "type": "admission_year", "label": "입학 연도",
+            "need": f"{minimum}년 이후 입학", "params": {"min": minimum, "max": maximum},
+            "source_id": 1, "quote": "입학"}
+
+
+def test_answering_an_income_ask_decides_those_rows(client):
+    # SPEC 10.1 J20: max 10 gives the boundary 11, which is dropped, so every choice
+    # value still passes PATCH.
+    add_card(client.db_path, "hq:a", conditions=[income_cond(5)], apply_end="2026-03-18")
+    add_card(client.db_path, "hq:b", conditions=[income_cond(10)], apply_end="2026-03-19")
+    new_student(client)
+    card = client.get("/api/ask").json()
+    assert card["field"] == "income_bracket" and card["unlock"] == 2
+    assert [c["label"] for c in card["choices"]] == ["6분위 이상", "6분위 미만"]
+    for choice in card["choices"]:
+        assert client.patch("/api/me", json={card["field"]: choice["value"]}).status_code == 200
+    client.patch("/api/me", json={card["field"]: card["choices"][0]["value"]})  # "6분위 이상"
+    items = {i["key"]: i for i in client.get("/api/notices").json()["items"]}
+    assert items["hq:a"]["rows"][0]["status"] == "fail"
+    assert items["hq:b"]["rows"][0]["status"] == "pass"
+
+
+def test_answering_an_admission_year_ask_decides_those_rows(client):
+    # SPEC 10.1 J20: max 2026 gives 2027, which is dropped, so "2027년 이상" never
+    # reaches PATCH (that was the 422 of checkpoint 1).
+    add_card(client.db_path, "hq:a", conditions=[admission_cond(2023, 2026)])
+    new_student(client)
+    card = client.get("/api/ask").json()
+    assert card["field"] == "admission_year" and card["unlock"] == 1
+    assert [c["label"] for c in card["choices"]] == ["2023년 이상", "2023년 미만"]
+    for choice in card["choices"]:
+        assert client.patch("/api/me", json={card["field"]: choice["value"]}).status_code == 200
+    client.patch("/api/me", json={card["field"]: card["choices"][0]["value"]})  # "2023년 이상"
+    items = {i["key"]: i for i in client.get("/api/notices").json()["items"]}
+    assert items["hq:a"]["rows"][0]["status"] == "pass"
+    client.patch("/api/me", json={"admission_year": card["choices"][1]["value"]})
+    items = {i["key"]: i for i in client.get("/api/notices").json()["items"]}
+    assert items["hq:a"]["rows"][0]["status"] == "fail"
 
 
 def test_ask_and_judge_need_a_student(client):
