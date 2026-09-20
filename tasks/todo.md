@@ -28,20 +28,20 @@
 
 ## T01 스키마와 적재
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 5분
 
 **설명.** 모든 모듈과 미리 만든 DB가 기대는 `app/db.py`를 만든다. SPEC 6.1 스키마를 글자 그대로 만들고, `_all.json`을 `notice` 테이블에 적재한다.
 
 **읽을 곳** SPEC 3, 4, 6.1
 
 **완료 조건**
-- [ ] `python -m app.db init`이 `DB_PATH`에 SPEC 6.1의 테이블 10개를 컬럼 이름과 순서 그대로 만들고, WAL 모드로 둔다. 테이블이 이미 있으면 건드리지 않는다(`IF NOT EXISTS`). DB 파일이나 테이블을 지우지 않는다.
-- [ ] `python -m app.db load data/notices/_all.json`이 939행을 넣는다. 두 번 돌려도 939행이다. `body_hash`는 `sha1(title + "\n" + body_text)`다.
-- [ ] 다른 모듈이 쓸 `connect()`가 있다. `sqlite3.Row`를 돌려준다. `requirements.txt`는 버전을 고정하고, `.env.example`에는 SPEC 4절의 키를 모두 적는다.
+- [x] `python -m app.db init`이 `DB_PATH`에 SPEC 6.1의 테이블 10개를 컬럼 이름과 순서 그대로 만들고, WAL 모드로 둔다. 테이블이 이미 있으면 건드리지 않는다(`IF NOT EXISTS`). DB 파일이나 테이블을 지우지 않는다.
+- [x] `python -m app.db load data/notices/_all.json`이 939행을 넣는다. 두 번 돌려도 939행이다. `body_hash`는 `sha1(title + "\n" + body_text)`다.
+- [x] 다른 모듈이 쓸 `connect()`가 있다. `sqlite3.Row`를 돌려준다. `requirements.txt`는 버전을 고정하고, `.env.example`에는 SPEC 4절의 키를 모두 적는다.
 
 **검증**
-- [ ] `pytest -q tests/test_db.py`
-- [ ] 수동: 위 두 명령을 실제 `_all.json`으로 돌린다. `DB_PATH`는 임시 파일로 둔다. `data/kmu.db`(미리 만든 DB)에는 돌리지 않는다.
+- [x] `pytest -q tests/test_db.py`
+- [x] 수동: 위 두 명령을 실제 `_all.json`으로 돌린다. `DB_PATH`는 임시 파일로 둔다. `data/kmu.db`(미리 만든 DB)에는 돌리지 않는다.
 
 **의존** 없음 · **파일** `app/__init__.py`, `app/db.py`, `tests/test_db.py`, `requirements.txt`, `.env.example` · **크기** M
 
