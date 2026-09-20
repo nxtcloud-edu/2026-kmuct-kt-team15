@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniQ 운영자</title>
+<style>
+  :root { --line: #d8dce4; --muted: #6b7280; --bg: #f6f7f9; --accent: #2f6df6; --warn: #b42318; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, "Malgun Gothic", sans-serif; color: #1b1f27; background: var(--bg); }
+  header { padding: 12px 20px; background: #fff; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; }
+  header b { font-size: 16px; }
+  header span { color: var(--muted); }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; align-items: start; }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  #queue { max-height: calc(100vh - 110px); overflow: auto; padding: 0; }
+  #queue button { display: block; width: 100%; text-align: left; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; cursor: pointer; font: inherit; }
+  #queue button:hover { background: #eef2ff; }
+  #queue button[aria-current="true"] { background: #e6edff; box-shadow: inset 3px 0 0 var(--accent); }
+  #queue .key { color: var(--muted); font-size: 12px; }
+  h2 { margin: 0 0 4px; font-size: 16px; }
+  h3 { margin: 18px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type="text"], select, textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #fff; }
+  textarea { resize: vertical; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 180px; }
+  .switch { display: flex; gap: 6px; align-items: center; font-size: 14px; color: #1b1f27; }
+  .source { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 10px; }
+  .source header { display: flex; justify-content: space-between; border: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; font-size: 12px; }
+  .source .text { padding: 10px; white-space: pre-wrap; max-height: 260px; overflow: auto; }
+  .source .text:empty::after { content: "원문 저장본에 글이 없어요. 숨기거나 마감만 고칠 수 있어요."; color: var(--warn); }
+  mark { background: #fff2a8; }
+  button.go { padding: 8px 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+  button.go:disabled { background: #a9b6cf; cursor: default; }
+  .result { margin-top: 10px; font-weight: 600; }
+  .result.err { color: var(--warn); font-weight: 400; }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header><b>UniQ 운영자</b><span>검토 대기열 <em id="count">…</em></span></header>
+<main>
+  <nav class="panel" id="queue"></nav>
+  <section class="panel" id="detail"><p class="hint">왼쪽에서 검토를 고르세요.</p></section>
+</main>
+
+<script>
+"use strict";
+
+// SPEC 6.2: the params each type takes, used as a starting point in the editor.
+var PARAMS = {
+  semesters: { min: 4 },
+  grade: { min: 2, max: 4 },
+  status: { allowed: ["재학"] },
+  gpa: { min: 3.0, scope: "cumulative" },
+  credits: { min: 12, scope: "last" },
+  lang: { any_of: { TOEIC: 800 } },
+  topik: { min: 3 },
+  major: { majors: ["소프트웨어학부"] },
+  income: { max: 8 },
+  admission_year: { min: 2023, max: null },
+  history: { flag: "교내장학 수혜", must: false },
+  none: {}
+};
+
+var state = { reviews: [], current: null, sources: [], quote: "", sourceId: null };
+
+function el(id) { return document.getElementById(id); }
+
+function escape(text) {
+  return String(text).replace(/[&<>]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
+  });
+}
+
+async function call(path, options) {
+  var res = await fetch(path, options || {});
+  if (!res.ok) {
+    var detail = res.status;
+    try { detail = (await res.json()).detail || detail; } catch (e) { /* keep the status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+async function loadQueue() {
+  state.reviews = await call("/admin/api/reviews");
+  el("count").textContent = state.reviews.length + "건";
+  el("queue").innerHTML = state.reviews.map(function (review) {
+    return '<button data-id="' + review.id + '">' +
+      "<div>" + escape(review.title) + "</div>" +
+      '<div class="key">#' + review.id + " · " + escape(review.reason) + " · " + escape(review.notice_key) + "</div>" +
+      "</button>";
+  }).join("");
+  Array.prototype.forEach.call(el("queue").querySelectorAll("button"), function (node) {
+    node.onclick = function () { openReview(Number(node.dataset.id)); };
+  });
+  if (state.current && !state.reviews.some(function (r) { return r.id === state.current.id; })) {
+    state.current = null;
+    el("detail").innerHTML = '<p class="hint">해결한 검토예요. 왼쪽에서 다음 검토를 고르세요.</p>';
+  }
+}
+
+function markUp(text, highlights) {
+  var out = "", at = 0;
+  (highlights || []).forEach(function (span) {
+    out += escape(text.slice(at, span[0])) + "<mark>" + escape(text.slice(span[0], span[1])) + "</mark>";
+    at = span[1];
+  });
+  return out + escape(text.slice(at));
+}
+
+async function openReview(id) {
+  var review = state.reviews.filter(function (r) { return r.id === id; })[0];
+  state.current = review;
+  state.quote = "";
+  state.sourceId = null;
+  Array.prototype.forEach.call(el("queue").querySelectorAll("button"), function (node) {
+    node.setAttribute("aria-current", String(Number(node.dataset.id) === id));
+  });
+  state.sources = await call("/admin/api/notices/" + encodeURIComponent(review.notice_key) + "/raw");
+  render();
+}
+
+function render() {
+  var review = state.current;
+  var types = Object.keys(PARAMS);
+  el("detail").innerHTML = [
+    "<h2>" + escape(review.title) + "</h2>",
+    '<p class="hint">#' + review.id + " · " + escape(review.reason) + " · " +
+      '<a href="' + escape(review.url) + '" target="_blank" rel="noreferrer">' + escape(review.notice_key) + "</a>" +
+      (review.condition_id ? " · 조건 " + escape(review.condition_id) : " · 카드 전체") + "</p>",
+    "<h3>카드</h3>",
+    '<div class="row">',
+    '  <div><label for="apply_end">신청 마감 (YYYY-MM-DD, 비우면 없음)</label>',
+    '    <input type="text" id="apply_end" value="' + escape(review.apply_end || "") + '"></div>',
+    '  <div><label>숨김</label><span class="switch"><input type="checkbox" id="hidden"' +
+      (review.hidden ? " checked" : "") + "><span>목록에서 숨기기</span></span></div>",
+    "</div>",
+    "<h3>조건 고치기</h3>",
+    '<p class="hint">원문에서 문장을 드래그하면 인용과 출처가 채워져요. 인용이 없으면 조건은 보내지 않아요.</p>',
+    '<div class="row">',
+    '  <div><label for="ctype">type</label><select id="ctype">' +
+      types.map(function (t) { return '<option value="' + t + '">' + t + "</option>"; }).join("") +
+      "</select></div>",
+    '  <div><label for="clabel">label</label><input type="text" id="clabel" placeholder="평균 학점"></div>',
+    '  <div><label for="cneed">need</label><input type="text" id="cneed" placeholder="3.0 이상"></div>',
+    "</div>",
+    '<div class="row" style="margin-top:8px">',
+    '  <div><label for="cparams">params (JSON, SPEC 6.2)</label><textarea id="cparams" rows="3"></textarea></div>',
+    '  <div><label for="cquote">인용 <span id="csource"></span></label><textarea id="cquote" rows="3" readonly></textarea></div>',
+    "</div>",
+    '<p style="margin-top:14px"><button class="go" id="save">저장</button></p>',
+    '<p class="result" id="result"></p>',
+    "<h3>원문</h3>",
+    state.sources.length ? state.sources.map(function (source) {
+      return '<div class="source" data-id="' + source.id + '">' +
+        "<header><span>" + escape(source.kind) + " · " + escape(source.label) + "</span>" +
+        (source.url ? '<a href="' + escape(source.url) + '" target="_blank" rel="noreferrer">출처</a>' : "") +
+        '</header><div class="text">' + markUp(source.text, source.highlights) + "</div></div>";
+    }).join("") : '<p class="hint">저장된 원문이 없어요.</p>'
+  ].join("\n");
+
+  el("ctype").onchange = function () {
+    el("cparams").value = JSON.stringify(PARAMS[el("ctype").value]);
+  };
+  el("ctype").onchange();
+  el("save").onclick = save;
+  Array.prototype.forEach.call(el("detail").querySelectorAll(".source .text"), function (node) {
+    node.onmouseup = function () {
+      var picked = String(window.getSelection());
+      if (!picked.trim()) return;
+      state.quote = picked;
+      state.sourceId = Number(node.parentNode.dataset.id);
+      el("cquote").value = picked;
+      el("csource").textContent = "· 출처 " + state.sourceId;
+    };
+  });
+}
+
+function say(message, isError) {
+  var node = el("result");
+  node.textContent = message;
+  node.className = isError ? "result err" : "result";
+}
+
+async function save() {
+  var review = state.current;
+  var body = {};
+  var applyEnd = el("apply_end").value.trim();
+  var hidden = el("hidden").checked;
+  if (applyEnd !== (review.apply_end || "")) body.apply_end = applyEnd || null;
+  if (hidden !== review.hidden) body.hidden = hidden;
+  if (state.quote) {
+    var params;
+    try {
+      params = JSON.parse(el("cparams").value);
+    } catch (e) {
+      return say("params가 JSON이 아니에요.", true);
+    }
+    body.condition = {
+      type: el("ctype").value,
+      label: el("clabel").value.trim(),
+      need: el("cneed").value.trim(),
+      params: params,
+      source_id: state.sourceId,
+      quote: state.quote
+    };
+  }
+  if (!Object.keys(body).length) return say("바꾼 것이 없어요.", true);
+  el("save").disabled = true;
+  try {
+    var result = await call("/admin/api/reviews/" + review.id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    say("학생 " + result.rejudged + "명 재판정 · " + result.newly_eligible + "명 지원 가능해짐" +
+        (result.resolved ? " · 검토 해결됨" : " · 검토는 대기열에 남아요"));
+    await loadQueue();
+    if (state.current && state.reviews.some(function (r) { return r.id === review.id; })) {
+      var keep = el("result").textContent;
+      await openReview(review.id);
+      say(keep);
+    }
+  } catch (e) {
+    say("저장하지 못했어요: " + e.message, true);
+  } finally {
+    el("save").disabled = false;
+  }
+}
+
+loadQueue().catch(function (e) {
+  el("queue").innerHTML = '<p class="hint" style="padding:12px">대기열을 불러오지 못했어요: ' + escape(e.message) + "</p>";
+});
+</script>
+</body>
+</html>

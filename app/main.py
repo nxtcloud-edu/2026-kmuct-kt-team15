@@ -573,3 +573,7 @@ def reveal_new(student=Depends(current_student)):
 from app import chat  # noqa: E402
 
 app.include_router(chat.router)
+
+from app import admin  # noqa: E402  (same reason: app.admin imports this module, SPEC 8.5)
+
+app.include_router(admin.router)
