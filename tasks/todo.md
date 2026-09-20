@@ -434,19 +434,21 @@
 
 ## T17 공지 해석 에이전트 (2등급)
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 21분
 
 **설명.** 그림 `kmu-interpret-loop`를 코드로 옮긴다. 만드는 데이터는 미리 만든 DB와 형식이 같다. 데모에서는 돌리지 않는다.
 
 **읽을 곳** SPEC 8.6, 6.2, 그림 `kmu-interpret-loop` (선택. `firebim/kirothon` 레포의 `docs/diagrams/`)
 
 **완료 조건**
-- [ ] 도구 4개, 8콜 예산, 인용 대조 규칙, 종료 두 갈래(카드 또는 검토 대기열)를 SPEC대로 구현한다.
-- [ ] 결과를 `card`, `raw_source`, `task_template`, `review`에 6.1 형식으로 쓴다. `interpreted_by`는 `'agent'`다.
+- [x] 도구 4개, 8콜 예산, 인용 대조 규칙, 종료 두 갈래(카드 또는 검토 대기열)를 SPEC대로 구현한다.
+- [x] 결과를 `card`, `raw_source`, `task_template`, `review`에 6.1 형식으로 쓴다. `interpreted_by`는 `'agent'`다.
 
 **검증**
-- [ ] `pytest -q tests/test_interpret.py`: 인용 대조와 첨부 형식 판별을 순수 함수로 확인한다.
-- [ ] 수동(시간이 남으면): `python -m app.interpret <본문만 있는 공지 key>` 한 번 돌려 보고 `test_data.py`가 통과하는지 확인한다.
+- [x] `pytest -q tests/test_interpret.py`: 인용 대조와 첨부 형식 판별을 순수 함수로 확인한다. (67개)
+- [ ] 수동(시간이 남으면): `python -m app.interpret <본문만 있는 공지 key>` 한 번 돌려 보고 `test_data.py`가 통과하는지 확인한다. → **못 했다.** 자동 실행 모드라 실제 llm-x를 부르지 않았다. 사람 확인 대기.
+
+**결과.** `app/interpret.py`: 도구 4개(`read_attachment` 내용으로 형식 판별 → pypdf·zipfile XML, `read_image` 준비된 판독본, `follow_link` `*.kookmin.ac.kr`만, `finish`), 8콜 예산, `check_condition`(인용 대조 + 6.2 params + `major`는 `static/index.html`의 `DEPTS`), `check_card`(분야 9종·날짜·기간), `build_conditions`(못 찾음·열람 불가·판독 저신뢰를 `unresolved` + `review`로), `write_all`(한 트랜잭션, 준비된 이미지 판독본과 `linked_to`·`hidden`·`demo_new`는 유지), CLI `python -m app.interpret <key> [--force]`. `tests/test_interpret.py` 67개는 네트워크 없이 순수 함수와 가짜 LLM 루프를 확인한다.
 
 **의존** T01, T12 · **파일** `app/interpret.py`, `tests/test_interpret.py`, `requirements.txt` · **크기** M
 
