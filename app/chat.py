@@ -33,7 +33,11 @@ QUESTION_SECONDS = 60  # the whole question, steps included
 CONCURRENCY = 3  # gateway calls in flight across the server
 ERROR_TEXT = "잠시 후 다시 물어봐 주세요"
 MISS_TEXT = "공지에서 찾을 수 없어요"
-RESULT_MAX = 1200  # a tool result is cut before it goes into the system message
+SEARCH_MAX = 10  # cards a search returns (SPEC 8.4)
+# A tool result is cut before it goes into the system message. check_eligibility without
+# keys carries up to 20 cards at ~130 chars each; 1200 cut it after 9 and the model then
+# listed 9 of 12 "eligible" cards (checked on the EC2 on 9/20).
+RESULT_MAX = 3000
 BODY_MAX = 2000  # ponytail: only the head of a notice body is searched and nothing is
 # indexed, so every question rescores every card; build an FTS5 index if it drags.
 K1, B = 1.2, 0.75
@@ -66,6 +70,8 @@ INSTRUCTIONS = """너는 국민대 학생의 공지 질문에 답하는 에이�
 - 마감은 결과의 days_left와 open으로 판단한다. 날짜를 직접 계산하지 말라.
 - 지원 가능한 공지가 하나도 없으면 없다고 답한다. 이것도 found: true다.
 - 도구 결과로도 답을 찾을 수 없을 때만 found: false를 낸다.
+- search_notices로 공지를 찾았으면 답하기 전에 그 key들로 check_eligibility를 불러 지원 가능 여부까지 확인한다.
+- 답은 한국어로만 쓴다. 한자, 가나 같은 다른 문자를 섞지 말라.
 - 답은 한국어 두세 문장이다. 위 예시의 값은 보기일 뿐이니 그대로 옮기지 말라."""
 
 FIRST_TOOL_NOTE = "아직 도구를 부르지 않았다. 먼저 도구를 불러라."
@@ -220,7 +226,7 @@ def tool_search(conn, student, args):
     if args["category"]:
         rows = [r for r in rows if r["category"] == args["category"]]
     if args["query"]:
-        ranked = bm25(rows, args["query"])[:5]
+        ranked = bm25(rows, args["query"])[:SEARCH_MAX]
         by_key = {r["notice_key"]: r for r in rows}
         picked = [by_key[key] for key, _ in ranked]
     else:
@@ -229,7 +235,7 @@ def tool_search(conn, student, args):
         picked = sorted(
             (r for r in rows if is_open(r, today)),
             key=lambda r: (r["apply_end"], r["notice_key"]),
-        )[:5]
+        )[:SEARCH_MAX]
     items = [brief(row, today) for row in picked]
     return {"items": items}, f"카드 {len(items)}건"
 
