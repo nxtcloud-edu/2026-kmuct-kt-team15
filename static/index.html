@@ -1754,6 +1754,10 @@ async function saveProfile(){
     state.noticesStale = true;
     const box = document.getElementById("cnt");
     if (box) box.innerHTML = countText();
+    /* The save is debounced, so the student may already be back on 홈 or a 상세 when
+       it lands; those screens re-read now instead of showing the old verdicts (9/20). */
+    if (state.screen === "home") refreshNotices();
+    else if (state.screen === "detail" && state.detailKey) loadDetail(state.detailKey);
   } catch (err){ apiToast(err); }
 }
 
