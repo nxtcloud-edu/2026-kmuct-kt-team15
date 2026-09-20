@@ -49,19 +49,19 @@
 
 ## T02 데이터 검증 테스트
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 4분
 
 **설명.** 미리 만든 `kmu.db`가 spec을 지키는지 확인하는 테스트다. 당일에는 가져온 DB와 새로 짠 코드가 맞는지 확인하는 첫 관문이다.
 
 **읽을 곳** SPEC 6.1, 6.2, 6.3, 10 (`tests/test_data.py` 항목, 10.1 D줄)
 
 **완료 조건**
-- [ ] SPEC 10절 `test_data.py`의 검사 여섯 가지와 시연 준비 검사(`KMU_RELEASE=1`)를 모두 한다. type은 6.2 표(`topik` 포함), category는 6.3의 9종이다.
-- [ ] `DB_PATH` 파일이 없거나 카드가 0건이면 skip한다.
+- [x] SPEC 10절 `test_data.py`의 검사 여섯 가지와 시연 준비 검사(`KMU_RELEASE=1`)를 모두 한다. type은 6.2 표(`topik` 포함), category는 6.3의 9종이다.
+- [x] `DB_PATH` 파일이 없거나 카드가 0건이면 skip한다.
 
 **검증**
-- [ ] `pytest -q tests/test_data.py`: 빈 DB에서는 skip, 카드가 있는 DB에서는 통과
-- [ ] 수동: quote 하나를 일부러 바꾸면 실패한다.
+- [x] `pytest -q tests/test_data.py`: 빈 DB에서는 skip, 카드가 있는 DB에서는 통과
+- [x] 수동: quote 하나를 일부러 바꾸면 실패한다.
 
 **의존** T01 · **파일** `tests/test_data.py`, `tests/conftest.py` · **크기** S
 
