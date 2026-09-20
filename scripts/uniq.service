@@ -1,0 +1,19 @@
+# systemd unit for the UniQ demo server. Installed by scripts/deploy.sh to /etc/systemd/system/uniq.service.
+# One uvicorn worker: the DB is a single SQLite file (SPEC 3). Port 8000: the hackathon account denies opening 80.
+[Unit]
+Description=UniQ (Kookmin notice agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/opt/uniq
+EnvironmentFile=/opt/uniq/.env
+Environment=PORT=8000
+ExecStart=/opt/uniq/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1
+Restart=always
+RestartSec=2
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

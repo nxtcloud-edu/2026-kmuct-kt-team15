@@ -14,3 +14,6 @@ __pycache__/
 # pytest tmp_path root (pytest.ini) and cache.
 .pytest_tmp/
 .pytest_cache/
+
+# Release tarball built by scripts/release.sh.
+dist/

@@ -1,0 +1,53 @@
+# Push to main -> pytest -> tarball -> scp to the EC2 -> scripts/deploy.sh over SSH -> smoke test.
+# Secrets: EC2_HOST (public IP), EC2_SSH_KEY (ed25519 private key for ec2-user). No AWS keys: the instance role
+# handles S3 (.env, kmu.db, release copies, backups). Infra and the account's constraints are in docs/deploy.md.
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+env:
+  S3_BUCKET: kmuct-ht-15-uniq
+  APP_PORT: "8000"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release tarball
+        run: bash scripts/release.sh dist/uniq.tar.gz
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          echo "StrictHostKeyChecking accept-new" >> ~/.ssh/config
+      - name: Upload and deploy
+        run: |
+          scp -o ConnectTimeout=20 dist/uniq.tar.gz "ec2-user@$EC2_HOST:/tmp/uniq.tar.gz"
+          ssh "ec2-user@$EC2_HOST" \
+            "sudo CODE_TAR=/tmp/uniq.tar.gz S3_BUCKET=$S3_BUCKET RELEASE_TAG=${GITHUB_SHA::12} PORT=$APP_PORT bash -s" < scripts/deploy.sh
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 10); do
+            curl -fsS "http://$EC2_HOST:$APP_PORT/api/config" && exit 0
+            sleep 3
+          done
+          echo "smoke test failed"; exit 1
