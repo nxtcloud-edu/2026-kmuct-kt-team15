@@ -416,6 +416,67 @@ CASES = [
         {"status": "pending", "have": "", "chip": "지원 자격 확인 중",
          "gap": "지원 자격 확인 중", "tip": "지원 자격 확인 중", "field": None, "ask": None},
     ),
+    # --- a value sitting exactly on a bound (SPEC 6.2, like J1-J3 for `at_least`) ---
+    (
+        "income equal to the ceiling passes",
+        cond("income", "소득 분위", "8분위 이하", max=8),
+        {"income_bracket": 8},
+        {"status": "pass", "have": "8분위", "tip": "내 소득 분위 8분위"},
+    ),
+    (
+        "grade equal to the lowest year passes",
+        cond("grade", "학년", "2~4학년", min=2, max=4),
+        {"semesters": 2},
+        {"status": "pass", "have": "2학년", "tip": "내 학년 2학년"},
+    ),
+    (
+        "grade equal to the highest year passes",
+        cond("grade", "학년", "2~4학년", min=2, max=4),
+        {"semesters": 6},
+        {"status": "pass", "have": "4학년"},
+    ),
+    (
+        "admission_year equal to the earliest year passes",
+        cond("admission_year", "입학 연도", "2023~2026년", min=2023, max=2026),
+        {"admission_year": 2023},
+        {"status": "pass", "have": "2023년"},
+    ),
+    (
+        "admission_year equal to the latest year passes",
+        cond("admission_year", "입학 연도", "2023~2026년", min=2023, max=2026),
+        {"admission_year": 2026},
+        {"status": "pass", "have": "2026년"},
+    ),
+    # --- which lang test the row names (SPEC 8.1 "have 문구") ---
+    (
+        "two tests pass, so the row names the first one of any_of",
+        LANG,
+        {"langs": {"IELTS": "7.0", "TOEIC": "850"}},
+        {"status": "pass", "have": "TOEIC 850", "chip": "TOEIC 800 이상",
+         "tip": "내 어학 성적 TOEIC 850"},
+    ),
+    (
+        "held tests are listed in LANG_TYPES order, joined with a comma",
+        LANG,
+        {"langs": {"OPIc": "IH", "IELTS": "5.0", "TOEIC": "700"}},
+        {"status": "fail", "have": "TOEIC 700, IELTS 5.0, OPIc IH",
+         "gap": "TOEIC 800 필요", "tip": "TOEIC 800 이상 / IELTS 6.0 이상"},
+    ),
+    # --- a history tooltip names the flag, the chip and gap name the label (SPEC 8.1) ---
+    (
+        "history tooltip uses the flag even when the label differs",
+        cond("history", "국적", "대한민국 국적자", flag="외국인 유학생", must=False),
+        {"history": {"외국인 유학생": False}},
+        {"status": "pass", "have": "아니오", "chip": "국적: 대한민국 국적자",
+         "tip": "외국인 유학생: 아니오"},
+    ),
+    (
+        "a failing history row keeps the flag in the tooltip and the label in the gap",
+        cond("history", "국적", "대한민국 국적자", flag="외국인 유학생", must=False),
+        {"history": {"외국인 유학생": True}},
+        {"status": "fail", "have": "예", "chip": "국적: 대한민국 국적자",
+         "gap": "국적: 대한민국 국적자", "tip": "외국인 유학생: 예 · 국적: 대한민국 국적자"},
+    ),
 ]
 
 
@@ -528,6 +589,8 @@ def income_cond(ceiling):
 YES_NO = [{"label": "예", "value": True}, {"label": "아니오", "value": False}]
 ADMISSION = cond("admission_year", "입학 연도", "2023~2026년 입학", min=2023, max=2026)
 CREDITS15 = cond("credits", "직전 학기 이수 학점", "15학점 이상", min=15, scope="last")
+CREDITS18 = cond("credits", "직전 학기 이수 학점", "18학점 이상", min=18, scope="last")
+CREDITS_TOTAL = cond("credits", "총 이수 학점", "60학점 이상", min=60, scope="total")
 GPA_LAST38 = cond("gpa", "직전 학기 평점", "3.8 이상", min=3.8, scope="last")
 GPA_LAST_CHOICES = [
     {"label": "3.5 이상", "value": {"min": 3.5, "max": None}},
@@ -677,6 +740,42 @@ ASK_CASES = [
              {"label": "3.8 이상", "value": {"min": 3.8, "max": None}},
              {"label": "3.5 ~ 3.8", "value": {"min": 3.5, "max": 3.79}},
              {"label": "3.5 미만", "value": {"min": None, "max": 3.49}},
+         ]},
+    ),
+    (
+        "an integer key names its middle bands by the end of the band, not the next boundary",
+        [card("n:1", [CREDITS]), card("n:2", [CREDITS15]), card("n:3", [CREDITS18])],
+        {},
+        None,
+        {"field": "credits_last", "question": "직전 학기에 몇 학점을 이수했나요?", "unlock": 3,
+         "choices": [
+             {"label": "18학점 이상", "value": {"min": 18, "max": None}},
+             {"label": "15 ~ 17학점", "value": {"min": 15, "max": 17}},
+             {"label": "12 ~ 14학점", "value": {"min": 12, "max": 14}},
+             {"label": "12학점 미만", "value": {"min": None, "max": 11}},
+         ]},
+    ),
+    (
+        "credits_total is asked with its own question",
+        [card("n:1", [CREDITS_TOTAL])],
+        {},
+        None,
+        {"field": "credits_total", "question": "지금까지 이수한 학점은 어느 구간인가요?",
+         "unlock": 1,
+         "choices": [
+             {"label": "60학점 이상", "value": {"min": 60, "max": None}},
+             {"label": "60학점 미만", "value": {"min": None, "max": 59}},
+         ]},
+    ),
+    (
+        "credits_last comes before credits_total when they tie",
+        [card("n:1", [CREDITS_TOTAL]), card("n:2", [CREDITS])],
+        {},
+        None,
+        {"field": "credits_last", "question": "직전 학기에 몇 학점을 이수했나요?", "unlock": 1,
+         "choices": [
+             {"label": "12학점 이상", "value": {"min": 12, "max": None}},
+             {"label": "12학점 미만", "value": {"min": None, "max": 11}},
          ]},
     ),
 ]
