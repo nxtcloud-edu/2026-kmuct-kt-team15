@@ -1015,7 +1015,7 @@ function askCard(){
   const card = state.ask;
   if (!card || state.askHidden.indexOf(card.field) >= 0) return "";
   return '<div class="card askcard">'
-    + '<span class="label">확인이 필요한 공지 ' + card.unlock + '개</span>'
+    + '<span class="label">정보를 더 입력하면 ' + card.unlock + '건 더 판단할 수 있어요</span>'
     + '<div class="q">' + esc(card.question) + '</div>'
     + '<div class="chips">' + (card.choices || []).map(function (c, i){
       return '<button class="chip" data-answer="' + i + '">' + esc(c.label) + '</button>';
