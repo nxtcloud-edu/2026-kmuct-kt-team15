@@ -739,7 +739,7 @@ function fieldStatus(){
 }
 
 function fieldSemesters(){
-  const list = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const list = [1, 2, 3, 4, 5, 6, 7, 8];   /* 9/20: 0 is not a choice a student makes */
   return '<div class="field"><label class="label" for="sem">마친 학기</label><div class="inrow">'
     + comboBox("sem", list, state.form.semesters)
     + '<span class="unit">학기</span></div></div>';
@@ -829,7 +829,7 @@ function formFromProfile(p){
   if (STATUSES.indexOf(p.status) >= 0) f.status = p.status;
   if (typeof p.grad_year === "number") f.grad_year = p.grad_year;
   if (GRAD_TERMS.indexOf(p.grad_term) >= 0) f.grad_term = p.grad_term;
-  f.semesters = typeof p.semesters === "number" ? p.semesters : 0;
+  f.semesters = typeof p.semesters === "number" && p.semesters >= 1 ? p.semesters : defaultForm().semesters;
   f.major = typeof p.major === "string" ? p.major : "";
   f.gpa = typeof p.gpa === "number" ? String(p.gpa) : "";
   f.langs = Object.assign({}, p.langs || {});
@@ -878,7 +878,7 @@ function formToProfile(){
 function validProfile(p){
   const isInt = (v) => typeof v === "number" && isFinite(v) && Math.floor(v) === v;
   if (STATUSES.indexOf(p.status) < 0) return false;
-  if (!isInt(p.semesters) || p.semesters < 0 || p.semesters > 8) return false;
+  if (!isInt(p.semesters) || p.semesters < 1 || p.semesters > 8) return false;
   if (typeof p.major !== "string" || p.major.length < 1 || p.major.length > 50) return false;
   if (p.status === "졸업예정"){
     if (!isInt(p.grad_year) || p.grad_year < 2026 || p.grad_year > 2029) return false;
