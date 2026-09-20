@@ -4,6 +4,16 @@
 
 ## 요약
 
+1회차 리허설을 9/20 09:30~11:01에 자동 실행 모드로 돌렸다. 벽시계 1시간 31분, 작업별 소요 시간의 합은 275분(T01~T19)이다. 레인 네 개를 git worktree로 병렬로 돌려 줄였다. 마지막 상태는 `pytest -q` 456 passed 3 skipped이다.
+
+- **완료.** P1, T01~T19, D1~D4, D6. Checkpoint 0~4를 모두 통과했다. 시연 경로 1~15번을 API 호출 순서로 한 번(43개 검사), headless Chrome 클릭으로 한 번(36개 검사) 재현했고 모두 PASS다. 대화는 실제 llm-x 키로 6개 질문을 두 번씩 보내 12회 모두 답했다(6.6~17.9초, `error` 0회).
+- **건너뜀.** D5 팀 점검. 팀 4명이 `data/check.html`로 카드를 대조해야 해서 Claude 몫(점검표)만 만들어 두었다. 그래서 정확도 수치가 아직 없고, `KMU_RELEASE=1 pytest tests/test_data.py`는 `data/kmu.db`에서 "148 cards still need the team check"로 3 failed다(점검 전이라 SPEC 10.1 D1대로 맞다). 모두 점검된 것으로 둔 사본 `data/kmu-demo.db`로는 10 passed다.
+- **사람 확인 대기.** 6건. 실제 브라우저 눈 확인(Checkpoint 0, T09~T11), `/admin` 화면(HTTP Basic 프롬프트라 자동화하지 않았다), 실제 키로 질문 한 번 보내기(T12), `python -m app.interpret`와 `python -m app.collector --once --dry-run`(둘 다 SPEC 12절의 "먼저 물어볼 것"이라 돌리지 않았다), D5 팀 점검. 아래 "사람 확인 대기" 절에 그대로 있다.
+- **막힘.** 1건. T17 서브에이전트가 레포에 없는 커밋을 보고했다. 레인 worktree를 fast-forward 하기 전에 그 에이전트가 정말 끝났는지 확인한다.
+- **추측.** 16건. 대부분 `docs/ui-spec.md`와 SPEC 7, 8절이 정하지 않은 빈틈이다. 아래 "추측" 절에 작업별로 있다.
+- **spec 수정.** 10건. SPEC 8.1, 8.3~8.7과 `docs/ui-spec.md` 5.8을 코드와 같이 고쳤다. 아래 "spec 수정" 절에 있다.
+- **GitHub.** 이슈 #1~#19는 레인 worktree를 PR 없이 main에 직접 합쳐서 `Closes #N`이 걸리지 않았고, 그래서 작업이 끝난 뒤에도 열려 있다. 당일에는 PR로 합치거나 머지한 뒤 바로 닫는다.
+
 ## 진행
 
 <!-- 한 줄씩 시간순: `HH:MM T04 완료 (23분)`, `HH:MM Checkpoint 1 통과: pytest 41 passed` -->
@@ -31,6 +41,7 @@
 - 10:57 Checkpoint 3 키 없는 서버: `/api/notices` 200(59건), `/api/ask`·`/api/plan`·`/api/alerts`·`/` 200, `/api/chat`은 `{"type": "error", "text": "잠시 후 다시 물어봐 주세요"}` 한 줄, 301자 422, 300자 200, 공백뿐 422.
 - 11:00 Checkpoint 4 자동 항목: `pytest -q` 456 passed 3 skipped. 한 프로세스 한 포트에서 `/` 200, `/admin` 비밀번호 없이 401·있으면 200, `/admin/api/reviews` 200. 학점 3.52→2.0으로 `eligible_count` 12→11. 계획 넣기·빼기와 할 일 체크가 다시 GET 해도 남는다. 두 학생이 서로 독립이다(계획, 새 공지 공개). 301자 질문 422. T01~T19 체크박스와 소요 시간이 모두 채워져 있다.
 - 11:01 `KMU_RELEASE=1 pytest tests/test_data.py`: `data/kmu.db`에서는 "148 cards still need the team check"로 3 failed(10.1 D1대로, 팀 점검 전이라 맞다). 모두 점검된 사본 `data/kmu-demo.db`로는 10 passed다.
+- 11:07 마무리. `pytest -q` 456 passed 3 skipped을 다시 확인하고 맨 위 요약을 썼다. GitHub 이슈 #1~#19는 아직 열려 있다(PR 없이 합쳐서 `Closes #N`이 걸리지 않았다). 닫는 것은 사람 확인 대기다.
 ## 막힘
 
 <!-- 작업 id, 무엇이 막혔나, 시도한 것, 사람이 정할 것 -->
