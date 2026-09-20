@@ -135,24 +135,26 @@
 
 ## T06 학생과 목록 API
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 6분
 
 **설명.** 익명 학생을 만들고, 학생 정보를 저장하고, 그 학생 기준으로 판정한 목록과 상세를 돌려준다.
 
 **읽을 곳** SPEC 6.4, 7 (표, 목록에 보이는 카드, 목록 항목, 상세, 학생 정보 검증), 8.2, 10.1 A1~A4, A9, A11, A12, A13(상세의 `posted_date`)
 
 **완료 조건**
-- [ ] 다음 API가 7절 JSON 모양 그대로 동작한다: `POST /api/students`, `GET·PUT·PATCH /api/me`, `GET /api/notices`, `GET /api/notices/{key}`.
+- [x] 다음 API가 7절 JSON 모양 그대로 동작한다: `POST /api/students`, `GET·PUT·PATCH /api/me`, `GET /api/notices`, `GET /api/notices/{key}`.
   - `X-Student-Id`가 없거나 모르는 id면 401이다.
   - 검증 실패는 422다. `langs`, `topik`과 UI (1)의 옛 키(`lang_type`, `lang_score`)도 7절대로 검사한다.
   - PATCH는 `history`를 키 단위로 합치고, `langs`는 통째로 바꾼다.
-- [ ] 목록은 "목록에 보이는 카드" 조건과 정렬 규칙을 지킨다. 목록 항목에 `rows`가 있다. 목록에 없는 카드의 상세는 404다.
-- [ ] 상세의 `tasks.done`은 그 학생의 `task_done` 기준이다. 상세의 `alt`는 8.2 규칙이다.
+- [x] 목록은 "목록에 보이는 카드" 조건과 정렬 규칙을 지킨다. 목록 항목에 `rows`가 있다. 목록에 없는 카드의 상세는 404다.
+- [x] 상세의 `tasks.done`은 그 학생의 `task_done` 기준이다. 상세의 `alt`는 8.2 규칙이다.
 
 **검증**
-- [ ] `pytest -q tests/test_api.py`
+- [x] `pytest -q tests/test_api.py`
   - 임시 DB에 카드를 넣는다: 지원 가능, 비해당, 정보 부족, `demo_new`, 같은 분야 지원 가능 둘(대안용).
   - 흐름: 학생 생성 → 정보 저장 → 목록 → 상세(`alt`). 401, 422, 404 경우도 확인한다.
+
+**결과.** `app/main.py`에 7절 API를 더했다: `current_student`(401), `check_profile`/`check_number`/`check_langs`/`check_history`(422), `visible_rows`(목록에 보이는 카드 + NEW·마감·key 정렬), `notice_items`, `tasks_of`, `pick_alt`(8.2), `detail_of`. PATCH는 `history`만 키 단위로 합치고 `langs`는 통째로 바꾼다. `tests/test_api.py` 78개: 10.1 A1~A4, A9, A11, A12, A13(상세 `posted_date`)을 표로 옮기고, 학생 생성 → 정보 저장 → 목록 → 상세(`alt`) 흐름과 401·422·404를 확인한다. NaN·Infinity는 httpx가 못 보내서 raw 본문으로 보낸다(A4).
 
 **의존** T01, T03, T04 · **파일** `app/main.py`, `tests/test_api.py` · **크기** M
 
