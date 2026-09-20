@@ -656,6 +656,9 @@ UI 시안의 `missing`(입력 안 함)과 `unknown`(기준 확인 필요)은 화
 | `get_plan()` | 계획한 카드와 남은 할 일 | 내 계획 불러오기 |
 
 - **조회 범위:** `check_ok = 1`, `hidden = 0`, `linked_to IS NULL`, 게시일 ≤ 오늘인 카드. `demo_new`는 공개한 학생만 본다. 도구 넷 모두 이 범위만 본다(`get_plan`도 계획에 넣은 뒤 숨기거나 연결된 카드는 빼고, 그 카드의 할 일도 세지 않는다). `open`은 목록의 신청 기간 조건을 만족하는지다. `search_notices`는 모르는 category를 무시하고, query가 비면 열린 공지를 마감순으로 5건 준다. `check_eligibility`의 `overrides`는 `PATCH /api/me`와 같은 검증을 거친다. `notice_keys`는 1~10개이거나 null이고, 범위 밖 key는 결과의 `not_found`에 적는다. 모두 범위 밖이면 잘못된 인자다. null이면 결과는 `{"summary": "모집 중인 공지 N건 중 M건에 지금 지원할 수 있다", "checked", "eligible", "results": [{"key", "title", "apply_end", "days_left", "category"}]}`이고 단계 설명은 "N건 중 M건 지원 가능"이다. "지금 지원할 수 있는 것", "받을 수 있는 장학금", "이번 달 마감"처럼 공지를 정하지 않은 질문은 검색 5건으로는 답할 수 없어서 더했다(시드 학생은 마감이 가까운 5건이 모두 지원 불가이고, 지원 가능한 첫 카드가 9번째다).
+- **도구 결과 모양.** 카드 한 건은 `{"key", "title", "category", "apply_end", "days_left", "open"}`이다. `search_notices`는 `{"items": [카드]}`, `get_profile`은 `{"profile"}`, `get_plan`은 `{"items": [카드 + "tasks": [{"title", "due", "done"}]], "remaining_tasks"}`다. `notice_keys`를 준 `check_eligibility`는 `notice_keys`가 null일 때와 같은 껍데기(`summary`, `checked`, `eligible`, `results`)에 카드마다 `eligible`, `gap`, `conditions`(`label`, `need`, `status`, `have`)를 더하고 `not_found`를 붙인다. 결과 JSON은 1,200자에서 자른다.
+- **검색 문서:** 제목(3배) + 부제 + 조건의 `label`·`need`와 `fields`(요약) + 공지 본문 앞 2,000자(원문)의 글자 bigram이다. 색인은 두지 않고 질문마다 점수를 낸다.
+- 모르는 category는 `check_eligibility`도 무시한다. 인자가 없는 도구의 `step.arg`는 빈 문자열이다. refs가 0건인 답(정보 수정 제안, 찾지 못함)의 `src`도 "공지 통합 검색"이다.
 - **정보 수정:** 도구로 두지 않는다. `confirm_update`가 오면 화면에 "바꾸기" 버튼을 띄우고, 학생이 누르면 `PATCH /api/me`를 보낸 뒤 목록을 다시 받는다(decisions 21번).
 - **첨부:** 대화에서 첨부를 읽지 않는다. 카드와 원문 저장본만 조회한다.
 

@@ -306,19 +306,21 @@
 
 ## T13 질의 에이전트 루프와 근거 검증
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 18분
 
 **설명.** 앱 안에서 실제로 도는 유일한 에이전트다. 질문마다 무엇을 조회할지 LLM이 고르고, 코드가 카드와 판정 엔진을 조회하고, 규칙이 근거를 검증한다.
 
 **읽을 곳** SPEC 8.4 ("에이전트 루프"부터 "근거 검증"까지), 10.1 C1~C6, 그림 `kmu-ask-loop` (선택. `firebim/kirothon` 레포의 `docs/diagrams/`)
 
 **완료 조건**
-- [ ] 도구 4개와 JSON 출력 방식, 깨진 JSON 재시도, 질문당 5회 예산, 같은 호출 반복 처리, 마지막 호출 안내를 SPEC대로 구현한다. 도구 결과는 system 메시지에, 질문은 user 메시지에 넣는다.
-- [ ] `refs`에는 이번 질문의 도구 결과에 나온 key만 남긴다. `found: false`거나 예산을 다 쓰면 고정 문구로 답하고 `chat_miss`에 넣는다.
-- [ ] `confirm_update`는 저장하지 않고 그대로 넘긴다.
+- [x] 도구 4개와 JSON 출력 방식, 깨진 JSON 재시도, 질문당 5회 예산, 같은 호출 반복 처리, 마지막 호출 안내를 SPEC대로 구현한다. 도구 결과는 system 메시지에, 질문은 user 메시지에 넣는다.
+- [x] `refs`에는 이번 질문의 도구 결과에 나온 key만 남긴다. `found: false`거나 예산을 다 쓰면 고정 문구로 답하고 `chat_miss`에 넣는다.
+- [x] `confirm_update`는 저장하지 않고 그대로 넘긴다.
 
 **검증**
-- [ ] `pytest -q tests/test_chat.py`: LLM을 정해진 답을 차례로 돌려주는 가짜 함수로 바꿔서 확인한다.
+- [x] `pytest -q tests/test_chat.py`: LLM을 정해진 답을 차례로 돌려주는 가짜 함수로 바꿔서 확인한다.
+
+**결과.** `app/chat.py`: 조회 범위(`scope_rows`), 도구 4개(`tool_search` 글자 bigram BM25·제목 3배, `tool_profile`, `tool_check`, `tool_plan`), 인자 검증(`normalize_args`, overrides는 `main.check_profile`), `extract_json`, `context_message`, `run_question`(step 이벤트를 흘리고 마지막에 answer 이벤트). 판정은 `judge`만 부르고 목록·상세는 `main`의 `notice_items`·`tasks_of`를 그대로 쓴다. `tests/test_chat.py` 35개로 10.1 C1~C6과 되묻기·예산·miss를 가짜 LLM으로 확인했다(네트워크 없음). T14가 붙일 것: `/api/chat` 라우터, 300자·동시 3개·분당 5개·60초 제한, `error` 이벤트. `run_question(student, question, chat_fn)`의 `chat_fn`에 세마포어를 씌운 함수를 넘기면 된다.
 
 **의존** T05, T06, T12 · **파일** `app/chat.py`, `tests/test_chat.py` · **크기** M
 
