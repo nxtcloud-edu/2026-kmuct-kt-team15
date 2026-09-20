@@ -109,6 +109,8 @@ select.inp{appearance:none;-webkit-appearance:none}
    or it is squeezed to nothing and wraps one letter per line ("학기"). */
 .unit{font-size:20px;color:var(--muted);font-weight:700;flex:none;white-space:nowrap}
 .combo{position:relative}
+.inrow>.combo,.two>.combo{flex:1;min-width:0}
+.inp[readonly]{cursor:pointer}
 .combo .list{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;max-height:260px;overflow-y:auto;
   background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:8px}
 .combo .grp{font-size:12px;color:var(--muted);font-weight:700;padding:8px 10px 4px}
@@ -539,7 +541,7 @@ const state = {
   checked: false,     // has "새 공지 확인" run yet (5.4 pill text)
   form: null,         // 5.9 fields, shared by onboarding and 내 정보
   majorText: "",      // what is typed in the 학과 combo (form.major only takes a listed name)
-  comboOpen: false,
+  comboOpen: "",      // id of the combo whose panel is open, "" = none
   detailKey: null,
   detail: null,
   toast: null,
@@ -677,9 +679,32 @@ const ONBOARDING_FIELDS = ["gpa", "langs", "major", "topik", "history:외국인 
 const ALL_CATEGORIES = ["장학", "인턴·현장실습", "국제교류", "교내활동", "학사·전공", "한국어·문화",
   "창업", "공모전·경진대회", "자격증·어학"];
 
-const options = (list, cur) => list.map(function (v){
-  return '<option value="' + esc(v) + '"' + (String(v) === String(cur) ? " selected" : "") + '>' + esc(v) + '</option>';
-}).join("");
+/* 5.9 선택 박스: every option list on the form is the 학과 combo -- the same box,
+   the same panel, the same rows. A native <select> is not that: it opens the
+   phone's own scroll picker. The input carries the raw option text as its
+   value, exactly as the <select> did, so `syncInputs` reads it unchanged.
+   `COMBOS` holds what each box shows; the fields are rebuilt on every render. */
+const COMBOS = {};
+
+function comboBox(id, items, cur, opt){
+  const o = opt || {};
+  COMBOS[id] = items || [];
+  return '<div class="combo"><input class="inp" id="' + id + '" type="text"'
+    + ' role="combobox" aria-haspopup="listbox" aria-expanded="false" autocomplete="off"'
+    + (o.search ? ' maxlength="50" placeholder="학과를 검색하세요"' : ' readonly')
+    + (o.aria ? ' aria-label="' + esc(o.aria) + '"' : "")
+    + (o.langid ? ' data-langid="' + esc(o.langid) + '"' : "")
+    + ' value="' + esc(cur) + '">'
+    + '<div class="list" hidden></div></div>';
+}
+
+/* 학과 alone is grouped by 단과대 and filtered by what is typed (5.2). */
+function comboListHtml(id){
+  if (id === "major") return comboHtml(state.majorText);
+  return (COMBOS[id] || []).map(function (v){
+    return '<button class="opt" data-opt="' + esc(v) + '">' + esc(v) + '</button>';
+  }).join("");
+}
 
 function fieldIdentity(){
   const on = state.form.intl;
@@ -697,8 +722,8 @@ function fieldStatus(){
     }).join("") + '</div>';
   if (f.status === "졸업예정"){
     h += '<div class="sub-field"><span class="label">졸업 예정 시점</span><div class="two">'
-      + '<select class="inp" id="gy" aria-label="졸업 예정 연도">' + options(GRAD_YEARS, f.grad_year) + '</select>'
-      + '<select class="inp" id="gt" aria-label="졸업 예정 시기">' + options(GRAD_TERMS, f.grad_term) + '</select>'
+      + comboBox("gy", GRAD_YEARS, f.grad_year, {aria: "졸업 예정 연도"})
+      + comboBox("gt", GRAD_TERMS, f.grad_term, {aria: "졸업 예정 시기"})
       + '</div></div>';
   }
   return h + '</div>';
@@ -707,15 +732,13 @@ function fieldStatus(){
 function fieldSemesters(){
   const list = [0, 1, 2, 3, 4, 5, 6, 7, 8];
   return '<div class="field"><label class="label" for="sem">마친 학기</label><div class="inrow">'
-    + '<select class="inp" id="sem">' + options(list, state.form.semesters) + '</select>'
+    + comboBox("sem", list, state.form.semesters)
     + '<span class="unit">학기</span></div></div>';
 }
 
 function fieldMajor(){
   return '<div class="field"><label class="label" for="major">학과</label>'
-    + '<div class="combo"><input class="inp" id="major" type="text" maxlength="50" autocomplete="off"'
-    + ' placeholder="학과를 검색하세요" value="' + esc(state.majorText) + '">'
-    + '<div class="list" id="deptlist" hidden></div></div></div>';
+    + comboBox("major", null, state.majorText, {search: true}) + '</div>';
 }
 
 function comboHtml(query){
@@ -727,7 +750,7 @@ function comboHtml(query){
       : g[1].filter(function (n){ return n.indexOf(q) >= 0; });
     if (!names.length) return;
     out += '<div class="grp">' + esc(g[0]) + '</div>' + names.map(function (n){
-      return '<button class="opt" data-dept="' + esc(n) + '">' + esc(n) + '</button>';
+      return '<button class="opt" data-opt="' + esc(n) + '">' + esc(n) + '</button>';
     }).join("");
   });
   return out || '<div class="none">검색 결과가 없어요</div>';
@@ -751,8 +774,8 @@ function fieldLangs(){
     const v = f.langs[t];
     const id = "lang" + i;
     let input;
-    if (t === "IELTS") input = '<select class="inp" id="' + id + '" data-langid="' + esc(t) + '">' + options(IELTS_BANDS, v) + '</select>';
-    else if (t === "OPIc") input = '<select class="inp" id="' + id + '" data-langid="' + esc(t) + '">' + options(OPIC_GRADES, v) + '</select>';
+    if (t === "IELTS") input = comboBox(id, IELTS_BANDS, v, {langid: t});
+    else if (t === "OPIc") input = comboBox(id, OPIC_GRADES, v, {langid: t});
     else input = '<input class="inp" id="' + id + '" type="text" inputmode="numeric" data-langid="' + esc(t) + '" value="' + esc(v) + '">';
     h += '<div class="sub-field"><label class="label" for="' + id + '">' + esc(t) + '</label>'
       + '<div class="inrow">' + input + '<span class="unit">' + esc(LANG_UNIT[t] || "점") + '</span></div></div>';
@@ -1587,7 +1610,7 @@ function go(screen, from){
   const prev = state.screen;
   state.openTip = null;
   state.sheet = null;
-  state.comboOpen = false;
+  state.comboOpen = "";
   state.rowAsk = null;
   state.screen = screen;
   lastScreen = null;
@@ -1608,7 +1631,7 @@ function enterForm(screen, prev){
   state.form = (p && Object.keys(p).length) ? formFromProfile(p) : defaultForm();
   if (isOb) state.form.intl = (screen === "obi1" || screen === "obi2");
   state.majorText = state.form.major;
-  state.comboOpen = false;
+  state.comboOpen = "";
 }
 
 function openDetail(key){
@@ -1666,12 +1689,18 @@ function syncInputs(){
   });
 }
 
+/* 4: the panel is drawn in place, never through render(), so the caret and the
+   open panel survive a keystroke. One panel is open at a time. */
 function updateCombo(){
-  const box = document.getElementById("deptlist");
-  if (!box) return;
-  if (!state.comboOpen){ box.hidden = true; box.innerHTML = ""; return; }
-  box.hidden = false;
-  box.innerHTML = comboHtml(state.majorText);
+  Array.prototype.forEach.call(document.querySelectorAll(".combo"), function (box){
+    const inp = box.querySelector(".inp");
+    const list = box.querySelector(".list");
+    if (!inp || !list) return;
+    const open = state.comboOpen === inp.id;
+    inp.setAttribute("aria-expanded", open);
+    list.hidden = !open;
+    list.innerHTML = open ? comboListHtml(inp.id) : "";
+  });
 }
 
 /* 5.2: while the 학과 box has focus only the button and the hint change, so the
@@ -2098,15 +2127,15 @@ document.addEventListener("click", function (e){
     afterFormChange();
     return;
   }
-  if ((el = e.target.closest("[data-dept]"))){
-    const name = el.getAttribute("data-dept");
-    state.majorText = name;
-    state.form.major = name;
-    const input = document.getElementById("major");
-    if (input) input.value = name;
-    state.comboOpen = false;
+  if ((el = e.target.closest("[data-opt]"))){
+    const box = el.closest(".combo");
+    const inp = box && box.querySelector(".inp");
+    if (!inp) return;
+    inp.value = el.getAttribute("data-opt");
+    state.comboOpen = "";
+    syncInputs();        /* the box holds the value the <select> used to hold */
     updateCombo();
-    updateNext();
+    if (inp.id === "major") updateNext();
     if (state.screen === "profile") scheduleSave();
     return;
   }
@@ -2155,24 +2184,26 @@ document.addEventListener("input", function (e){
   }
 });
 
-document.addEventListener("change", function (e){
-  const node = e.target;
-  if (!node || !node.tagName) return;
-  if (node.id === "sem") state.form.semesters = parseInt(node.value, 10);
-  else if (node.id === "gy") state.form.grad_year = parseInt(node.value, 10);
-  else if (node.id === "gt") state.form.grad_term = node.value;
-  else if (node.getAttribute("data-langid")) state.form.langs[node.getAttribute("data-langid")] = node.value;
-  else return;
-  if (state.screen === "profile") scheduleSave();
-});
+/* 3. 선택 박스: opens on focus, closes 0.15s after it leaves (time to tap a row).
+   Moving focus between two boxes just moves the panel. A readonly box raises no
+   keyboard, so the old `change` listener has nothing left to hear. */
+const comboOf = (node) => (node && node.closest && node.classList
+  && node.classList.contains("inp") && node.closest(".combo")) ? node.id : "";
 
-/* 3. 학과 콤보: opens on focus, closes 0.15s after it leaves (time to tap a row). */
 document.addEventListener("focusin", function (e){
-  if (e.target && e.target.id === "major"){ state.comboOpen = true; updateCombo(); }
+  const id = comboOf(e.target);
+  if (!id) return;
+  state.comboOpen = id;
+  updateCombo();
 });
 document.addEventListener("focusout", function (e){
-  if (!e.target || e.target.id !== "major") return;
-  setTimeout(function (){ state.comboOpen = false; updateCombo(); }, 150);
+  const id = comboOf(e.target);
+  if (!id) return;
+  setTimeout(function (){
+    if (state.comboOpen !== id) return;   // focus already moved to another box
+    state.comboOpen = "";
+    updateCombo();
+  }, 150);
 });
 
 document.addEventListener("keydown", function (e){
