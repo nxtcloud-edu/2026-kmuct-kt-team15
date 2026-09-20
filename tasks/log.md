@@ -29,6 +29,8 @@
 - 10:52 Checkpoint 3: 실제 llm-x 키로 `/api/chat`에 6개 질문을 두 번씩(12회) 보냈다. 12회 모두 답했고 `error` 0회, "공지에서 찾을 수 없어요" 0회, 6.6~17.9초. 시연 질문 "학점 2.8이어도 자기설계 융합전공 신청할 수 있어?"는 두 번 다 단계 두 개(공지 검색 → 조건 대조 "학점 0.20 부족")와 `refs` `kyungsang:1818`로 "지원할 수 없다"고 답했다(checks.md 기대값 그대로). 기록은 스크래치의 `cp3.json`.
 - 10:55 Checkpoint 3 화면: headless Chrome으로 대화 탭에서 추천 질문을 눌러 11.1초 만에 "2단계로 확인했어요"와 답 말풍선, 참고 공지 행(칩 포함), "{src} 기준"까지 그려지는 것을 확인했다.
 - 10:57 Checkpoint 3 키 없는 서버: `/api/notices` 200(59건), `/api/ask`·`/api/plan`·`/api/alerts`·`/` 200, `/api/chat`은 `{"type": "error", "text": "잠시 후 다시 물어봐 주세요"}` 한 줄, 301자 422, 300자 200, 공백뿐 422.
+- 11:00 Checkpoint 4 자동 항목: `pytest -q` 456 passed 3 skipped. 한 프로세스 한 포트에서 `/` 200, `/admin` 비밀번호 없이 401·있으면 200, `/admin/api/reviews` 200. 학점 3.52→2.0으로 `eligible_count` 12→11. 계획 넣기·빼기와 할 일 체크가 다시 GET 해도 남는다. 두 학생이 서로 독립이다(계획, 새 공지 공개). 301자 질문 422. T01~T19 체크박스와 소요 시간이 모두 채워져 있다.
+- 11:01 `KMU_RELEASE=1 pytest tests/test_data.py`: `data/kmu.db`에서는 "148 cards still need the team check"로 3 failed(10.1 D1대로, 팀 점검 전이라 맞다). 모두 점검된 사본 `data/kmu-demo.db`로는 10 passed다.
 ## 막힘
 
 <!-- 작업 id, 무엇이 막혔나, 시도한 것, 사람이 정할 것 -->
@@ -41,6 +43,7 @@
 - T09~T11 브라우저 클릭 검증: 화면을 스크린샷과 나란히 놓고 배치·문구 비교, 달력 미끄러짐, 새 공지 확인 진행 표시, 다크 모드
 - T16: `/admin` 화면을 브라우저로 열어 보기(HTTP Basic 프롬프트 때문에 자동화하지 않았다)
 - T17, T18 수동 실행: `python -m app.interpret <key>`(llm-x 호출)와 `python -m app.collector --once --dry-run`(학교 사이트 수집). 둘 다 먼저 물어볼 항목이라 자동 모드에서 돌리지 않았다. 엔진 A 파서 규칙 두 가지는 그때 고칠 추정이다.
+- D5 팀 점검: `data/check.html`로 카드를 대조하고 `data/check.csv`를 채운 뒤 `python data/prep/d5_check.py apply`. 그다음 `KMU_RELEASE=1 pytest tests/test_data.py`가 통과하고 정확도 수치(맞음/점검 건수)가 나온다.
 ## 추측
 
 <!-- 작업 id, spec의 어느 절, 무엇을 어떻게 추측했나 -->
