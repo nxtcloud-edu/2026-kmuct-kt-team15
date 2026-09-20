@@ -2,7 +2,7 @@
 # Deploy UniQ on the EC2 (Amazon Linux 2023; Ubuntu 24.04 also works). Idempotent: run it again to update.
 # The instance role reads and writes the team bucket, so nothing here needs AWS keys.
 #
-#   sudo CODE_TAR=/tmp/uniq.tar.gz S3_BUCKET=kmuct-ht-15-uniq RELEASE_TAG=<sha> bash /tmp/deploy.sh   # what CI runs over SSH
+#   sudo CODE_TAR=~/uniq.tar.gz S3_BUCKET=kmuct-ht-15-uniq RELEASE_TAG=<sha> bash ~/deploy.sh   # what CI runs over SSH
 #   sudo S3_BUCKET=kmuct-ht-15-uniq bash deploy.sh                                              # redeploy release/uniq.tar.gz
 #   sudo CODE_URL=... ENV_URL=... DB_URL=... bash deploy.sh                                     # presigned URLs, no role needed
 #
@@ -47,9 +47,9 @@ if [ -n "${CODE_TAR:-}" ]; then
     aws s3 cp "$CODE_TAR" "s3://$S3_BUCKET/release/uniq.tar.gz" --quiet
   fi
 elif [ -n "${CODE_URL:-}" ]; then
-  curl -fsS "$CODE_URL" -o /tmp/uniq.tar.gz && untar /tmp/uniq.tar.gz
-elif [ -n "${S3_BUCKET:-}" ] && aws s3 cp "s3://$S3_BUCKET/release/uniq.tar.gz" /tmp/uniq.tar.gz --quiet 2>/dev/null; then
-  untar /tmp/uniq.tar.gz
+  tmp=$(mktemp) && curl -fsS "$CODE_URL" -o "$tmp" && untar "$tmp" && rm -f "$tmp"
+elif [ -n "${S3_BUCKET:-}" ] && tmp=$(mktemp) && aws s3 cp "s3://$S3_BUCKET/release/uniq.tar.gz" "$tmp" --quiet 2>/dev/null; then
+  untar "$tmp" && rm -f "$tmp"
 elif [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" fetch --quiet origin && git -C "$APP_DIR" checkout --quiet "$BRANCH" && git -C "$APP_DIR" pull --quiet --ff-only
 elif [ -n "${REPO_URL:-}" ]; then
