@@ -148,6 +148,9 @@ select.inp{appearance:none;-webkit-appearance:none}
 .row .ttl{font-size:17px;font-weight:700;line-height:1.4}
 .row .new{font-size:13px;color:var(--accent);font-weight:700;margin-right:4px}
 .row .sub{font-size:14px;color:var(--muted);margin-top:2px}
+/* SPEC 8.3: 계획 중 carries the accent so it stands out of the muted subtitle.
+   The D-day beside it only turns --urgent inside three days, so no clash. */
+.row .planned{color:var(--accent);font-weight:700}
 .row.dim .ttl{color:var(--muted)}
 .row .mchips{margin-top:10px}
 /* SPEC 8.3 묶음 박스: one card per 8.1 group, always open. A row is not a fixed
@@ -663,7 +666,8 @@ function chipsHtml(key, rows, limit){
 function noticeRow(it, limit){
   const g = groupOf(it);
   const sub = g === 1
-    ? ddayHtml(it.apply_end) + " · " + esc(it.dept) + (it.planned ? " · 계획 중" : "")
+    ? ddayHtml(it.apply_end) + " · " + esc(it.dept)
+      + (it.planned ? ' · <span class="planned">계획 중</span>' : "")
     : (g === 3 ? "정보를 더 입력하면 확인할 수 있어요" : esc(it.gap || ""));
   return '<div class="row' + (g === 1 ? "" : " dim") + '">'
     + '<button class="top" data-key="' + esc(it.key) + '"><span class="txt">'
