@@ -41,9 +41,9 @@ jobs:
           echo "StrictHostKeyChecking accept-new" >> ~/.ssh/config
       - name: Upload and deploy
         run: |
-          scp -o ConnectTimeout=20 dist/uniq.tar.gz "ec2-user@$EC2_HOST:/tmp/uniq.tar.gz"
+          scp -o ConnectTimeout=20 dist/uniq.tar.gz scripts/deploy.sh "ec2-user@$EC2_HOST:~/"
           ssh "ec2-user@$EC2_HOST" \
-            "sudo CODE_TAR=/tmp/uniq.tar.gz S3_BUCKET=$S3_BUCKET RELEASE_TAG=${GITHUB_SHA::12} PORT=$APP_PORT bash -s" < scripts/deploy.sh
+            "sudo CODE_TAR=/home/ec2-user/uniq.tar.gz S3_BUCKET=$S3_BUCKET RELEASE_TAG=${GITHUB_SHA::12} PORT=$APP_PORT bash /home/ec2-user/deploy.sh"
       - name: Smoke test
         run: |
           for i in $(seq 1 10); do
