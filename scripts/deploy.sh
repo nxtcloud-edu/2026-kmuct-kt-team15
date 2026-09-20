@@ -2,7 +2,7 @@
 # Deploy UniQ on the EC2 (Amazon Linux 2023; Ubuntu 24.04 also works). Idempotent: run it again to update.
 # The instance role reads and writes the team bucket, so nothing here needs AWS keys.
 #
-#   sudo CODE_TAR=/tmp/uniq.tar.gz S3_BUCKET=kmuct-ht-15-uniq RELEASE_TAG=<sha> bash deploy.sh   # what CI runs over SSH
+#   sudo CODE_TAR=/tmp/uniq.tar.gz S3_BUCKET=kmuct-ht-15-uniq RELEASE_TAG=<sha> bash /tmp/deploy.sh   # what CI runs over SSH
 #   sudo S3_BUCKET=kmuct-ht-15-uniq bash deploy.sh                                              # redeploy release/uniq.tar.gz
 #   sudo CODE_URL=... ENV_URL=... DB_URL=... bash deploy.sh                                     # presigned URLs, no role needed
 #
@@ -11,6 +11,7 @@
 # data/kmu.db is fetched from <bucket>/db/kmu.db (or DB_URL) only when the instance has none, because the live DB
 # collects student profiles and plans. FORCE_DB=1 overwrites it anyway.
 set -euo pipefail
+trap 'echo "deploy.sh failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 APP_DIR=${APP_DIR:-/opt/uniq}
 APP_USER=${APP_USER:-$(id -u ec2-user >/dev/null 2>&1 && echo ec2-user || echo ubuntu)}
