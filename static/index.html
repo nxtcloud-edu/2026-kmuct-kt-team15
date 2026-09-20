@@ -328,6 +328,56 @@ select.inp{appearance:none;-webkit-appearance:none}
 .phead .dd{font-size:16px;font-weight:700;flex:none}
 .plans+.tbtn{display:block;margin:0 auto}
 
+/* 5.7 대화 */
+.chatlog{display:flex;flex-direction:column;gap:18px;padding:8px 0 20px}
+.msg{display:flex;gap:8px;align-items:flex-start}
+.msg>img{width:32px;height:32px;border-radius:11px;background:#fff;flex:none}
+.msg>.sp{width:32px;flex:none}
+.msg>.col{display:flex;flex-direction:column;gap:8px;align-items:flex-start;min-width:0;flex:1;
+  padding:0;max-width:none}
+.bub{background:var(--fill);padding:12px 16px;border-radius:6px 20px 20px 20px;max-width:92%;
+  font-size:16px;line-height:1.65;white-space:pre-wrap}
+.me{display:flex;justify-content:flex-end}
+.me .bub{background:var(--accent);color:var(--on-accent);border-radius:20px 6px 20px 20px;
+  max-width:80%;padding:11px 16px}
+.caret{color:var(--accent);font-weight:400}
+.stephead{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:var(--muted);text-align:left}
+.stephead .sym{color:var(--accent);font-size:16px}
+.stephead .sec{font-size:13px;color:var(--muted);font-weight:500}
+.stephead .ic{width:18px;height:18px;border-radius:50%;background:var(--accent-weak);color:var(--accent);
+  display:grid;place-items:center;flex:none}
+.stephead .chev{display:flex}
+.stephead[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.stephead.done:hover{color:var(--sub)}
+.shimmer{animation:shimmer 1.8s ease-in-out infinite}
+@keyframes shimmer{0%,100%{color:var(--muted)}50%{color:var(--text)}}
+.stepbox{background:var(--fill);border-radius:16px;padding:12px 14px;width:100%}
+.stepline{display:flex;align-items:flex-start;gap:10px;position:relative;animation:step-in .35s ease-out}
+@keyframes step-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.stepline+.stepline{margin-top:6px}
+.stepline:not(:last-child)::before{content:"";position:absolute;left:9px;top:20px;bottom:-6px;width:2px;background:var(--line)}
+.stepline .ic{width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--on-accent);
+  display:grid;place-items:center;flex:none;position:relative;z-index:1}
+.stepline .txt{min-width:0}
+.stepline .t{font-size:14px;font-weight:700;display:block}
+.stepline .d{font-size:13px;color:var(--muted);display:block}
+.stepline .d i{color:var(--line);font-style:normal}
+.stepline .ms{margin-left:auto;font-size:12px;color:var(--muted);flex:none}
+.src{font-size:12px;color:var(--muted);padding-left:4px}
+.chatbar{background:var(--surface);padding:8px 0 10px}
+.chatbar .col{display:flex;flex-direction:column;gap:10px}
+.sugg{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.sugg::-webkit-scrollbar{display:none}
+.sugg button{flex:none;white-space:nowrap;background:var(--fill);border-radius:999px;padding:8px 14px;
+  font-size:14px;color:var(--sub)}
+.sugg button[disabled]{opacity:.4;cursor:default}
+.inbar{display:flex;align-items:center;gap:8px;background:var(--fill);border-radius:16px;padding:4px 4px 4px 16px}
+.inbar input{flex:1;min-width:0;border:0;background:none;font-size:16px;padding:8px 0}
+.inbar input:focus{outline:none}
+.sendbtn{width:40px;height:40px;border-radius:12px;background:var(--accent);color:var(--on-accent);
+  display:grid;place-items:center;flex:none}
+.sendbtn[disabled]{opacity:.4;cursor:default}
+
 /* SPEC 8.3 원문 시트: 출처별 구역과 인용 강조 */
 .rawsec{display:flex;flex-direction:column;gap:8px}
 .rawsec .sechead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
@@ -335,8 +385,9 @@ select.inp{appearance:none;-webkit-appearance:none}
 .raw mark{background:var(--accent-weak);color:var(--text);border-radius:3px;padding:0 1px}
 
 @media (prefers-reduced-motion: reduce){
-  .screen.enter,.sheet,.push,.splash .mid,.cal.next,.cal.prev{animation:none}
+  .screen.enter,.sheet,.push,.splash .mid,.cal.next,.cal.prev,.stepline{animation:none}
   .seg>i{transition:none}
+  .shimmer{animation:none;color:var(--muted)}
   .splash .bar>i{animation:none;width:100%}
   .spin{animation-duration:2s}
 }
@@ -478,6 +529,7 @@ const state = {
   planPick: null,     // the chosen day, or null
   slide: "",          // "next" | "prev" for one calendar slide
   checking: 0,        // 새 공지 확인 progress, 0 = not running
+  chat: {items: [], busy: false, draft: ""},   // 5.7, kept across tabs, gone on reload
   cats: [],           // 5.4 category filter. empty = "전체"
   open: {info: false, wait: false, fail: false},  // home groups 3, 4, 2
   checked: false,     // has "새 공지 확인" run yet (5.4 pill text)
@@ -547,14 +599,6 @@ function splashView(){
     + '<div class="mid"><div class="box"><img src="' + LOGO_WORDMARK + '" alt="UniQ"></div>'
     + '<div class="tag">흩어진 학교 공지, 내 조건에 맞는 것만</div></div>'
     + '<div class="bar"><i></i></div></div>';
-}
-
-/* T11 and T15 replace this one. */
-function tabPlaceholder(title, note){
-  return '<div class="screen ground enter">'
-    + topbar('<span class="tabtitle">' + esc(title) + '</span>', personBtn)
-    + '<div class="scroll"><div class="col"><div class="empty">' + esc(note) + '</div></div></div>'
-    + tabbar() + '</div>';
 }
 
 /* ---------- notice rows and condition chips (UI 3, SPEC 8.1, 8.3) ---------- */
@@ -993,6 +1037,241 @@ function homeView(){
     + '</div></div></div>' + tabbar() + '</div>';
 }
 
+/* ---------- 5.7 대화 (SPEC 8.4 NDJSON) ---------- */
+const THINK_SYMBOLS = ["✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳"];
+const CHAT_ERROR = "잠시 후 다시 물어봐 주세요";
+let chatSeq = 0;
+
+function botMsg(inner, avatar){
+  return '<div class="msg">'
+    + (avatar ? '<img src="' + LOGO_ICON + '" alt="">' : '<span class="sp"></span>')
+    + '<div class="col">' + inner + '</div></div>';
+}
+
+function stepBoxHtml(turn){
+  return '<div class="stepbox">' + turn.steps.map(function (s){
+    /* 8.4: a step only arrives once its tool is done, so every one is complete. */
+    return '<div class="stepline"><span class="ic">' + ICON.checkSm + '</span>'
+      + '<span class="txt"><span class="t">' + esc(s.title) + '</span>'
+      + (s.detail ? '<span class="d"><i>↳</i> ' + esc(s.detail) + '</span>' : "")
+      + '</span><span class="ms">' + esc(secText(s.ms || 0)) + '</span></div>';
+  }).join("") + '</div>';
+}
+
+function turnHtml(turn){
+  let inner = "";
+  const thinking = turn.answer == null && !turn.error;
+  if (thinking){
+    inner += '<div class="stephead"><span class="sym" id="sym' + turn.id + '">' + THINK_SYMBOLS[0] + '</span>'
+      + '<span class="shimmer">생각하는 중</span>'
+      + '<span class="sec" id="sec' + turn.id + '">' + esc(secText(turn.elapsed || 0)) + '</span></div>'
+      + (turn.steps.length ? stepBoxHtml(turn) : "");
+  } else if (turn.steps.length){
+    /* 8.3: an answer with no step hides this header */
+    inner += '<button class="stephead done" data-steps="' + turn.id + '" aria-expanded="' + (!!turn.open) + '">'
+      + '<span class="ic">' + ICON.checkSm + '</span>' + turn.steps.length + '단계로 확인했어요'
+      + '<span class="sec">' + esc(secText(turn.ms)) + '</span>'
+      + '<span class="chev">' + ICON.down + '</span></button>'
+      + (turn.open ? stepBoxHtml(turn) : "");
+  }
+  if (turn.error){
+    inner += '<div class="bub">' + esc(turn.error) + '</div>';
+  } else if (turn.answer != null){
+    const done = turn.typed >= turn.answer.length;
+    inner += '<div class="bub" id="ans' + turn.id + '">'
+      + esc(done ? turn.answer : turn.answer.slice(0, turn.typed))
+      + (done ? "" : '<b class="caret">▍</b>') + '</div>';
+    if (done){
+      if (turn.confirm) inner += '<div class="chips"><button class="chip" data-confirm="' + turn.id + '">바꾸기</button></div>';
+      if (turn.refs.length){
+        inner += '<div class="altbox">' + turn.refs.map(function (r){ return noticeRow(r, 4); }).join("") + '</div>'
+          + (turn.src ? '<div class="src">' + esc(turn.src) + ' 기준</div>' : "");
+      }
+    }
+  }
+  return inner;
+}
+
+function chatLogHtml(){
+  /* 5.7 + SPEC 8.3: one bot message, two bubbles, the count from /api/me */
+  let html = botMsg('<div class="bub">공지를 찾아 내 조건과 대조해서 답해 드려요. 무엇이든 물어보세요.</div>'
+    + '<div class="bub">지금 조건으로 지원할 수 있는 공지는 ' + state.eligibleCount + '개예요.</div>', true);
+  let prevBot = true;
+  state.chat.items.forEach(function (item){
+    if (item.kind === "me"){
+      html += '<div class="me"><div class="bub">' + esc(item.text) + '</div></div>';
+      prevBot = false;
+      return;
+    }
+    html += botMsg(turnHtml(item), !prevBot);
+    prevBot = true;
+  });
+  return html;
+}
+
+function chatBarHtml(){
+  const busy = state.chat.busy;
+  return '<span class="label" style="font-size:12px">이런 걸 물어보세요</span>'
+    + '<div class="sugg">' + state.suggested.map(function (q, i){
+      return '<button data-sugg="' + i + '"' + (busy ? " disabled" : "") + '>' + esc(q) + '</button>';
+    }).join("") + '</div>'
+    + '<div class="inbar"><input id="chatin" type="text" maxlength="300" placeholder="메시지를 입력하세요"'
+    + ' value="' + esc(state.chat.draft) + '" aria-label="메시지">'
+    + '<button class="sendbtn" id="sendbtn" data-send="1" aria-label="보내기"'
+    + (busy ? " disabled" : "") + '>' + ICON.send + '</button></div>';
+}
+
+function chatView(){
+  return '<div class="screen enter">'
+    + topbar('<span class="tabtitle">대화</span>', personBtn)
+    + '<div class="scroll" id="chatscroll"><div class="col">'
+    + '<div class="chatlog" id="chatlog">' + chatLogHtml() + '</div></div></div>'
+    + '<div class="chatbar"><div class="col">' + chatBarHtml() + '</div></div>'
+    + tabbar() + '</div>';
+}
+
+function scrollChat(){
+  const sc = document.getElementById("chatscroll");
+  if (sc) sc.scrollTop = sc.scrollHeight;
+}
+
+/* Only the log is redrawn while a question runs, so the input keeps its caret. */
+function drawChat(){
+  const log = document.getElementById("chatlog");
+  if (!log){ render(); return; }
+  log.innerHTML = chatLogHtml();
+  const send = document.getElementById("sendbtn");
+  if (send) send.disabled = state.chat.busy;
+  Array.prototype.forEach.call(document.querySelectorAll(".sugg button"), function (b){
+    b.disabled = state.chat.busy;
+  });
+  scrollChat();
+}
+
+function stopTicker(){
+  clearInterval(stopTicker.sym);
+  clearInterval(stopTicker.sec);
+}
+
+function startTicker(turn){
+  stopTicker();
+  let at = 0;
+  stopTicker.sym = setInterval(function (){
+    at = (at + 1) % THINK_SYMBOLS.length;
+    const node = document.getElementById("sym" + turn.id);
+    if (node) node.textContent = THINK_SYMBOLS[at];
+  }, 110);
+  stopTicker.sec = setInterval(function (){
+    turn.elapsed = Date.now() - turn.t0;
+    const node = document.getElementById("sec" + turn.id);
+    if (node) node.textContent = secText(turn.elapsed);
+  }, 100);
+}
+
+/* 5.7: two characters every 18ms, with the caret while it runs */
+function typeAnswer(turn){
+  clearInterval(typeAnswer.t);
+  typeAnswer.t = setInterval(function (){
+    turn.typed = Math.min(turn.typed + 2, turn.answer.length);
+    if (turn.typed >= turn.answer.length){
+      clearInterval(typeAnswer.t);
+      state.chat.busy = false;
+      drawChat();     /* the refs box and the source line come with the last letter */
+      return;
+    }
+    const node = document.getElementById("ans" + turn.id);
+    if (!node){ drawChat(); return; }
+    node.innerHTML = esc(turn.answer.slice(0, turn.typed)) + '<b class="caret">▍</b>';
+    scrollChat();
+  }, 18);
+}
+
+function chatEvent(turn, ev){
+  if (!ev || !ev.type) return;
+  if (ev.type === "step"){
+    turn.steps.push(ev);
+    drawChat();
+    return;
+  }
+  if (ev.type === "answer"){
+    stopTicker();
+    turn.ms = Date.now() - turn.t0;
+    turn.answer = String(ev.text == null ? "" : ev.text);
+    turn.refs = ev.refs || [];
+    turn.src = ev.src || "";
+    turn.confirm = ev.confirm_update || null;
+    turn.typed = 0;
+    drawChat();
+    typeAnswer(turn);
+    return;
+  }
+  if (ev.type === "error"){
+    stopTicker();
+    turn.ms = Date.now() - turn.t0;
+    turn.error = ev.text || CHAT_ERROR;
+    state.chat.busy = false;
+    drawChat();
+  }
+}
+
+async function sendChat(text){
+  if (state.chat.busy) return;
+  const message = String(text == null ? "" : text).trim();
+  if (!message) return;
+  state.chat.items.push({kind: "me", text: message});
+  const turn = {kind: "turn", id: ++chatSeq, steps: [], answer: null, typed: 0, refs: [], src: "",
+    confirm: null, error: null, open: false, t0: Date.now(), elapsed: 0, ms: 0};
+  state.chat.items.push(turn);
+  state.chat.busy = true;
+  state.chat.draft = "";
+  const box = document.getElementById("chatin");
+  if (box) box.value = "";
+  drawChat();
+  startTicker(turn);
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-Student-Id": state.studentId || ""},
+      body: JSON.stringify({message: message})
+    });
+    if (!res.ok || !res.body) throw new Error("chat " + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;){
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, {stream: true});
+      let at;
+      while ((at = buffer.indexOf("\n")) >= 0){
+        const line = buffer.slice(0, at).trim();
+        buffer = buffer.slice(at + 1);
+        if (line) chatEvent(turn, JSON.parse(line));
+      }
+    }
+    if (buffer.trim()) chatEvent(turn, JSON.parse(buffer.trim()));
+    /* 8.3: a stream that stops without an answer is an error too */
+    if (turn.answer == null && !turn.error) chatEvent(turn, {type: "error", text: CHAT_ERROR});
+  } catch (err){
+    chatEvent(turn, {type: "error", text: CHAT_ERROR});
+  }
+}
+
+/* SPEC 8.4: the student, not the model, saves a 정보 수정 제안. */
+async function confirmUpdate(turn){
+  try {
+    const me = await api("/api/me", {method: "PATCH", body: turn.confirm});
+    state.profile = me.profile;
+    state.eligibleCount = me.eligible_count;
+  } catch (err){ apiToast(err); return; }
+  turn.confirm = null;
+  toast("내 정보를 바꿨어요");
+  drawChat();
+  state.noticesStale = true;
+  refreshNotices();
+}
+
 /* ---------- 5.8 내 계획 ---------- */
 const TONE_ORDER = ["sem", "gpa", "lang", "major", "any"];
 
@@ -1263,7 +1542,7 @@ const VIEWS = {
   obi1: function (){ return obStep1(true); },
   obi2: function (){ return obStep2(true); },
   home: homeView,
-  chat: function (){ return tabPlaceholder("대화", "대화 화면은 T15가 만든다"); },
+  chat: chatView,
   plan: planView,
   detail: detailView,
   profile: profileView
@@ -1280,6 +1559,7 @@ function render(){
   const sc = app.querySelector(".scroll");
   if (sc && keep) sc.scrollTop = keep;
   lastScreen = state.screen;
+  if (state.screen === "chat") scrollChat();   /* 5.7: the log always shows its end */
   drawOverlay();
 }
 
@@ -1757,6 +2037,25 @@ document.addEventListener("click", function (e){
     return;
   }
   if (e.target.closest("[data-cal-add]")){ toast("캘린더 앱에 추가했어요 (시안)"); return; }
+
+  /* 5.7 대화 */
+  if (e.target.closest("[data-send]")){ sendChat(state.chat.draft); return; }
+  if ((el = e.target.closest("[data-sugg]"))){
+    if (!state.chat.busy) sendChat(state.suggested[parseInt(el.getAttribute("data-sugg"), 10)]);
+    return;
+  }
+  if ((el = e.target.closest("[data-steps]"))){
+    const id = parseInt(el.getAttribute("data-steps"), 10);
+    state.chat.items.forEach(function (it){ if (it.id === id) it.open = !it.open; });
+    drawChat();
+    return;
+  }
+  if ((el = e.target.closest("[data-confirm]"))){
+    const id = parseInt(el.getAttribute("data-confirm"), 10);
+    const turn = state.chat.items.filter(function (it){ return it.id === id; })[0];
+    if (turn && turn.confirm) confirmUpdate(turn);
+    return;
+  }
   if (e.target.closest("[data-refresh]")){ startCheck(); return; }
   if (e.target.closest("[data-alerts]")){ showAlert(); return; }
 
@@ -1845,6 +2144,7 @@ document.addEventListener("input", function (e){
     if (state.screen === "profile") scheduleSave();
     return;
   }
+  if (node.id === "chatin"){ state.chat.draft = node.value; return; }
   if (node.getAttribute("data-langid")){
     state.form.langs[node.getAttribute("data-langid")] = node.value;
     if (state.screen === "profile") scheduleSave();
@@ -1873,6 +2173,11 @@ document.addEventListener("focusout", function (e){
 
 document.addEventListener("keydown", function (e){
   if (e.key === "Escape" && state.sheet) closeSheet();
+  /* 5.7: enter sends too, and is ignored while an answer is being made */
+  if (e.key === "Enter" && e.target && e.target.id === "chatin"){
+    e.preventDefault();
+    sendChat(e.target.value);
+  }
 });
 
 /* ---------- boot (SPEC 8.3 "학생 id") ---------- */
