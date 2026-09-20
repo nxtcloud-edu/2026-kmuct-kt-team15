@@ -272,6 +272,45 @@ def detail_of(conn, student, key):
     return detail
 
 
+def highlights_of(text, source_id, conditions):
+    """SPEC 7 원문 시트: [start, end) of every quote that was read in this section."""
+    spans = []
+    for cond in conditions:
+        quote = cond.get("quote") or ""  # an `unresolved` condition quotes nothing
+        if not quote or cond.get("source_id") != source_id:
+            continue
+        start = text.find(quote)  # the first place only
+        if start < 0:
+            # ponytail: a quote that drifted from its raw_source is dropped instead of
+            # raising. tests/test_data.py is what guards the quotes of the prepared DB.
+            continue
+        span = [start, start + len(quote)]
+        if span not in spans:
+            spans.append(span)
+    return sorted(spans)
+
+
+def raw_sheet(conn, student, key):
+    """SPEC 7 원문 시트: the sources in `ord` order, with this card's quotes marked."""
+    row = next((r for r in visible_rows(conn, student) if r["notice_key"] == key), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="unknown notice")
+    conditions = json.loads(row["conditions"])
+    sections = []
+    for source in conn.execute(
+        "SELECT id, kind, label, url, text FROM raw_source WHERE notice_key = ? ORDER BY ord",
+        (key,),
+    ):
+        sections.append({
+            "kind": source["kind"],
+            "label": source["label"],
+            "url": source["url"],
+            "text": source["text"],
+            "highlights": highlights_of(source["text"], source["id"], conditions),
+        })
+    return {"path": " → ".join(s["label"] for s in sections), "sections": sections}
+
+
 def me_body(student):
     """SPEC 7: {"profile", "eligible_count"}. eligible_count counts the visible list."""
     conn = db.connect()
@@ -368,3 +407,49 @@ def notice(key: str, student=Depends(current_student)):
         return detail_of(conn, student, key)
     finally:
         conn.close()
+
+
+@app.get("/api/notices/{key}/raw")
+def notice_raw(key: str, student=Depends(current_student)):
+    conn = db.connect()
+    try:
+        return raw_sheet(conn, student, key)
+    finally:
+        conn.close()
+
+
+@app.post("/api/judge")
+def judge_with_overrides(body: dict = Body(...), student=Depends(current_student)):
+    """SPEC 7 가정 판정: judge these cards with assumed values, and store nothing."""
+    keys = body.get("notice_keys")
+    if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+        bad("notice_keys takes a list of notice keys")
+    overrides = body.get("overrides") or {}
+    check_profile(overrides)  # the same validation as PATCH (SPEC 7)
+    conn = db.connect()
+    try:
+        rows = {r["notice_key"]: r for r in visible_rows(conn, student)}
+    finally:
+        conn.close()
+    unknown = [key for key in keys if key not in rows]
+    if unknown:
+        raise HTTPException(status_code=404, detail="unknown notice: " + ", ".join(unknown))
+    profile = judge.with_overrides(student["profile"], overrides)
+    return [
+        judge.judge_notice({"conditions": json.loads(rows[key]["conditions"])}, profile)
+        for key in keys
+    ]
+
+
+@app.get("/api/ask")
+def ask(field: str | None = None, student=Depends(current_student)):
+    """SPEC 7 되묻기 카드: the question that unlocks the most held notices, or null."""
+    conn = db.connect()
+    try:
+        cards = [{"conditions": json.loads(r["conditions"])} for r in visible_rows(conn, student)]
+    finally:
+        conn.close()
+    try:
+        return judge.ask_back(cards, student["profile"], field)
+    except ValueError as error:
+        bad(str(error))

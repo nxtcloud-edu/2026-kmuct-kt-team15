@@ -162,21 +162,23 @@
 
 ## T07 원문 시트, 가정 판정, 되묻기 API
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 5분
 
 **설명.** 에이전트가 조건을 어디서 찾았는지 보여주는 원문 시트 API, 대화용 가정 판정 API, 되묻기 카드 API를 만든다.
 
 **읽을 곳** SPEC 7 (원문 시트, 되묻기 카드, `POST /api/judge`), 8.1, 10.1 A7, A10
 
 **완료 조건**
-- [ ] `GET /api/notices/{key}/raw`는 `raw_source`를 `ord` 순서로 돌려준다.
+- [x] `GET /api/notices/{key}/raw`는 `raw_source`를 `ord` 순서로 돌려준다.
   - `path`는 구역 label을 " → "로 이은 것이다.
   - `highlights`는 조건 `quote`가 `text`에서 시작하는 위치와 끝 위치다.
-- [ ] `POST /api/judge`는 `overrides`로 판정만 하고 저장하지 않는다.
-- [ ] `GET /api/ask`는 T05 결과를 그대로 돌려준다. `?field=`를 주면 그 키로 만든 카드이고, 질문 틀이 없는 키는 422다. 되묻기에 답(PATCH)하면 다음 목록에서 `unlock`개 공지의 그 행이 pass나 fail로 정해진다.
+- [x] `POST /api/judge`는 `overrides`로 판정만 하고 저장하지 않는다.
+- [x] `GET /api/ask`는 T05 결과를 그대로 돌려준다. `?field=`를 주면 그 키로 만든 카드이고, 질문 틀이 없는 키는 422다. 되묻기에 답(PATCH)하면 다음 목록에서 `unlock`개 공지의 그 행이 pass나 fail로 정해진다.
 
 **검증**
-- [ ] `pytest -q tests/test_api.py`
+- [x] `pytest -q tests/test_api.py`
+
+**결과.** `app/main.py`에 `highlights_of`/`raw_sheet`(원문 시트), `POST /api/judge`(`judge.with_overrides` + `judge.judge_notice`, 저장 안 함, 목록 밖 key는 404, overrides는 PATCH와 같은 검증으로 422), `GET /api/ask`(`judge.ask_back`을 그대로 돌려주고 ValueError는 422)를 더했다. 판정 논리는 모두 `app/judge.py`에 있다. `tests/test_api.py` +29개(모두 107개): 원문 시트의 `path`·구역 순서·`highlights`(구역별 source_id, 첫 자리만, 빈 quote 건너뜀, 같은 구간 한 번, 위치 순서)와 10.1 A7(숨긴·마감 카드는 세지 않음), A10(`?field=`는 fail 있는 공지도 셈, 온보딩 키·모르는 키는 422), 답(PATCH) 뒤 그 행이 pass/fail로 정해지는 것을 확인한다.
 
 **의존** T05, T06 · **파일** `app/main.py`, `tests/test_api.py` · **크기** S
 
