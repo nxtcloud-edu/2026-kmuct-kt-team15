@@ -69,24 +69,24 @@
 
 ## T03 앱 뼈대와 화면 틀
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 12분
 
 **설명.** FastAPI 앱을 띄우고, UI 명세 `docs/ui-spec.md`로 `static/index.html`의 틀을 만든다. 시안 HTML은 당일에 없으므로 읽지 않는다. 화면 내용은 T09~T11, T15가 채운다.
 
 **읽을 곳** SPEC 4 (배포 요구사항), 5, 7 (`/api/config`), 8.3 첫 문단, `docs/ui-spec.md` 1~4절과 5.1, `docs/ui-screens/01-splash.png`, `06-home.png`
 
 **완료 조건**
-- [ ] `static/index.html` 한 파일에 명세 1~4절을 만든다: 틀, 디자인 토큰(밝게·어둡게), 공통 부품 CSS, 아이콘, `state`와 `render()`, 화면 이동 규칙, 토스트·배너·시트, 탭바. 로고 PNG 두 개는 base64로 넣는다(SPEC 8.3).
-- [ ] `uvicorn app.main:app`에서 `/`가 스플래시(명세 5.1)를 띄우고 2.4초 뒤나 탭하면 온보딩 자리로 넘어간다. 탭바로 홈, 대화, 내 계획의 빈 화면을 오갈 수 있다.
-- [ ] `GET /api/config`가 `{"today", "sources", "suggested_questions"}`를 돌려준다.
+- [x] `static/index.html` 한 파일에 명세 1~4절을 만든다: 틀, 디자인 토큰(밝게·어둡게), 공통 부품 CSS, 아이콘, `state`와 `render()`, 화면 이동 규칙, 토스트·배너·시트, 탭바. 로고 PNG 두 개는 base64로 넣는다(SPEC 8.3).
+- [x] `uvicorn app.main:app`에서 `/`가 스플래시(명세 5.1)를 띄우고 2.4초 뒤나 탭하면 온보딩 자리로 넘어간다. 탭바로 홈, 대화, 내 계획의 빈 화면을 오갈 수 있다.
+- [x] `GET /api/config`가 `{"today", "sources", "suggested_questions"}`를 돌려준다.
   - `today`는 `DEMO_TODAY`다.
   - `sources`는 `notice`의 서로 다른 `source_id` 수다.
   - `suggested_questions`는 `meta` 값이고, 없으면 빈 배열이다.
-- [ ] 화면과 API가 한 포트에 있다.
+- [x] 화면과 API가 한 포트에 있다.
 
 **검증**
-- [ ] `pytest -q tests/test_api.py` (config 테스트 1개)
-- [ ] 수동: 브라우저로 `/`를 열어 스플래시와 탭바를 `docs/ui-screens/01-splash.png`, `06-home.png`와 비교한다. 다크 모드도 본다.
+- [x] `pytest -q tests/test_api.py` (config 테스트 1개)
+- [x] 수동: 브라우저로 `/`를 열어 스플래시와 탭바를 `docs/ui-screens/01-splash.png`, `06-home.png`와 비교한다. 다크 모드도 본다.
 
 **의존** T01 · **파일** `app/main.py`, `static/index.html`, `tests/test_api.py` · **크기** M
 
