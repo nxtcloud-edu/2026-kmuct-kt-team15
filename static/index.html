@@ -1777,6 +1777,9 @@ async function refreshNotices(){
     state.notices = (body && body.items) || [];
     state.noticesLoaded = true;
     state.noticesStale = false;
+    /* /api/me's eligible_count is this same list's eligible rows (SPEC 7), so the chat
+       greeting follows every reload, 새 공지 공개 included (9/20: home said 12, chat 11). */
+    state.eligibleCount = state.notices.filter(function (it){ return it.eligible; }).length;
   } catch (err){ apiToast(err); }
   render();
   loadAsk();   /* 8.3: the 되묻기 card is redrawn with the list it belongs to */
