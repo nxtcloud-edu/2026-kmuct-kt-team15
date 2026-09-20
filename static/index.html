@@ -279,6 +279,18 @@ select.inp{appearance:none;-webkit-appearance:none}
 .steps .when{font-size:14px;color:var(--muted);flex:none}
 .links{display:flex;gap:16px;flex-wrap:wrap}
 
+/* SPEC 8.3 되묻기 카드 (홈) and 상세에서 바로 답하기 */
+.askcard{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.askcard .q{font-size:18px;font-weight:700;line-height:1.4}
+.askcard .chips{width:100%}
+.askwrap{display:flex;flex-direction:column;gap:8px}
+
+/* SPEC 8.3 원문 시트: 출처별 구역과 인용 강조 */
+.rawsec{display:flex;flex-direction:column;gap:8px}
+.rawsec .sechead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.rawsec .nm{font-size:14px;font-weight:700;color:var(--sub)}
+.raw mark{background:var(--accent-weak);color:var(--text);border-radius:3px;padding:0 1px}
+
 @media (prefers-reduced-motion: reduce){
   .screen.enter,.sheet,.push,.splash .mid{animation:none}
   .splash .bar>i{animation:none;width:100%}
@@ -409,6 +421,9 @@ const state = {
   notices: [],
   noticesLoaded: false,
   noticesStale: false,
+  ask: null,          // GET /api/ask card on home
+  askHidden: [],      // "모르겠어요" fields, this visit only
+  rowAsk: null,       // {field, card} unfolded under a detail ask row
   cats: [],           // 5.4 category filter. empty = "전체"
   open: {info: false, wait: false, fail: false},  // home groups 3, 4, 2
   checked: false,     // has "새 공지 확인" run yet (5.4 pill text)
@@ -825,6 +840,20 @@ function catsRow(){
     }).join("") + '</div>';
 }
 
+/* SPEC 8.3 되묻기 카드: sits between 오늘 할 일 and the category chips, and reuses
+   the card and the selection chips of UI 3. */
+function askCard(){
+  const card = state.ask;
+  if (!card || state.askHidden.indexOf(card.field) >= 0) return "";
+  return '<div class="card askcard">'
+    + '<span class="label">확인이 필요한 공지 ' + card.unlock + '개</span>'
+    + '<div class="q">' + esc(card.question) + '</div>'
+    + '<div class="chips">' + (card.choices || []).map(function (c, i){
+      return '<button class="chip" data-answer="' + i + '">' + esc(c.label) + '</button>';
+    }).join("") + '</div>'
+    + '<button class="tbtn" data-ask-skip="1">모르겠어요</button></div>';
+}
+
 function moreBlock(id, items, text){
   if (!items.length) return "";
   const open = state.open[id];
@@ -865,7 +894,8 @@ function homeView(){
     + (filtered ? '<span class="label">전체 ' + total + '개 중</span>' : '<span></span>')
     + refreshPill() + '</div></div>'
     + '<div class="stack">'
-    /* T11 puts the 오늘 할 일 card here, T10 the 되묻기 card. */
+    /* T11 puts the 오늘 할 일 card here, above the 되묻기 card (UI 5.4). */
+    + askCard()
     + catsRow()
     + '<div class="card">' + list + '</div>'
     + '</div></div></div>' + tabbar() + '</div>';
@@ -873,6 +903,18 @@ function homeView(){
 
 /* ---------- 5.5 detail ---------- */
 const kvRow = (k, v) => '<div class="kv"><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>';
+
+/* SPEC 8.3 상세에서 바로 답하기: an onboarding key keeps the mockup's "입력하기"
+   (내 정보), a 되묻기 key unfolds the GET /api/ask?field= choices under the row. */
+function askRowHtml(r){
+  const field = r.field || "";
+  const open = state.rowAsk && state.rowAsk.field === field;
+  return '<div class="askwrap"><div class="askrow"><span>' + esc(r.ask) + '</span>'
+    + '<button class="tbtn" data-ask="' + esc(field) + '" aria-expanded="' + (!!open) + '">입력하기</button></div>'
+    + (open ? '<div class="chips">' + (state.rowAsk.card.choices || []).map(function (c, i){
+      return '<button class="chip" data-ranswer="' + i + '">' + esc(c.label) + '</button>';
+    }).join("") + '</div>' : "") + '</div>';
+}
 
 function detailCta(d, g){
   if (d.planned) return '<button class="cta weak" data-plan="0">계획에서 빼기</button>';
@@ -903,10 +945,7 @@ function detailView(){
   h += '<div class="band"></div><div class="col sec">'
     + '<div class="verdict ' + verdict[0] + '"><span class="ic">' + verdict[1] + '</span>' + esc(verdict[2]) + '</div>'
     + chipsHtml(d.key, rows, 0)
-    + rows.filter(function (r){ return r.ask; }).map(function (r){
-      return '<div class="askrow"><span>' + esc(r.ask) + '</span>'
-        + '<button class="tbtn" data-ask="' + esc(r.field || "") + '">입력하기</button></div>';
-    }).join("") + '</div>';
+    + rows.filter(function (r){ return r.ask; }).map(askRowHtml).join("") + '</div>';
 
   if (g === 2 && d.alt){
     h += '<div class="band"></div><div class="col sec"><h2>대신 이건 지원할 수 있어요</h2>'
@@ -1009,6 +1048,7 @@ function go(screen, from){
   state.openTip = null;
   state.sheet = null;
   state.comboOpen = false;
+  state.rowAsk = null;
   state.screen = screen;
   lastScreen = null;
   enterForm(screen, prev);
@@ -1032,6 +1072,7 @@ function enterForm(screen, prev){
 function openDetail(key){
   state.detailKey = key;
   state.detail = null;
+  state.rowAsk = null;
   if (state.screen === "detail"){
     state.openTip = null;
     render();
@@ -1150,6 +1191,7 @@ async function refreshNotices(){
     state.noticesStale = false;
   } catch (err){ apiToast(err); }
   render();
+  loadAsk();   /* 8.3: the 되묻기 card is redrawn with the list it belongs to */
 }
 
 async function loadDetail(key){
@@ -1161,10 +1203,108 @@ async function loadDetail(key){
   } catch (err){ apiToast(err); }
 }
 
-function askAction(field){
-  /* ponytail: a 되묻기 key still goes to 내 정보 like the mockup does. T10 unfolds
-     the GET /api/ask?field= choices under the row instead (SPEC 8.3). */
-  go("profile", state.screen);
+/* SPEC 8.1 `field`: an onboarding key goes to 내 정보, a 되묻기 key is answered
+   right here (SPEC 8.3 "상세에서 바로 답하기"). */
+async function askAction(field){
+  if (!field || ONBOARDING_FIELDS.indexOf(field) >= 0){ go("profile", state.screen); return; }
+  if (state.rowAsk && state.rowAsk.field === field){ state.rowAsk = null; render(); return; }
+  try {
+    const card = await api("/api/ask?field=" + encodeURIComponent(field));
+    if (!card) return;   // 7: null when no visible notice is missing that key
+    state.rowAsk = {field: field, card: card};
+    render();
+  } catch (err){ apiToast(err); }
+}
+
+/* 7: the answer goes back as a profile key, and a history flag as one entry of
+   `history` ("history:{flag}" as a key is a 422). */
+function askBody(field, value){
+  const body = {};
+  if (field.slice(0, 8) === "history:"){
+    body.history = {};
+    body.history[field.slice(8)] = value;
+  } else {
+    body[field] = value;
+  }
+  return body;
+}
+
+async function loadAsk(){
+  try {
+    state.ask = await api("/api/ask");
+  } catch (err){
+    /* ponytail: a failed 되묻기 card only hides itself -- it is an extra on home,
+       and a toast on every list refresh would be noise. */
+    state.ask = null;
+  }
+  render();
+}
+
+async function answerAsk(card, choice, fromRow){
+  try {
+    const me = await api("/api/me", {method: "PATCH", body: askBody(card.field, choice.value)});
+    state.profile = me.profile;
+    state.eligibleCount = me.eligible_count;
+  } catch (err){ apiToast(err); return; }
+  toast("공지 " + card.unlock + "개가 정리됐어요");
+  if (fromRow){
+    state.rowAsk = null;
+    if (state.detailKey) loadDetail(state.detailKey);
+  }
+  refreshNotices();
+}
+
+/* ---------- 5.6 원문 시트 (SPEC 7 원문 시트, 8.3 UI 변경) ---------- */
+
+/* ponytail: `highlights` counts Python characters and slice() counts UTF-16
+   units, so a notice with an emoji would shift. Every card quote is Korean
+   text; count code points here if that ever changes. */
+function markText(text, spans){
+  const out = [];
+  let at = 0;
+  (spans || []).forEach(function (span){
+    const from = Math.max(at, span[0]);
+    const to = span[1];
+    if (to <= from) return;
+    out.push(esc(text.slice(at, from)));
+    out.push("<mark>" + esc(text.slice(from, to)) + "</mark>");
+    at = to;
+  });
+  out.push(esc(text.slice(at)));
+  return out.join("");
+}
+
+function rawSheetHtml(d, sheet){
+  const sections = (sheet && sheet.sections) || [];
+  const posted = d.posted_date ? " · " + longDate(d.posted_date) + " 게시" : "";
+  return '<h2>공지 원문</h2>'
+    + (sheet && sheet.path ? '<div class="label">' + esc(sheet.path) + '</div>' : "")
+    + '<div class="label">' + esc(d.dept) + ' 게시판' + esc(posted) + '</div>'
+    + sections.map(function (sec){
+      /* a section can be empty (an image-only notice keeps its 본문 row), and an
+         empty grey box reads like a bug, so only the head is left. */
+      return '<div class="rawsec"><div class="sechead"><span class="nm">' + esc(sec.label) + '</span>'
+        + (sec.url ? '<a class="tbtn" href="' + esc(sec.url) + '" target="_blank" rel="noopener">출처 열기</a>' : "")
+        + '</div>'
+        + (sec.text ? '<div class="raw">' + markText(sec.text, sec.highlights) + '</div>' : "")
+        + '</div>';
+    }).join("")
+    + '<a class="tbtn" href="' + esc(d.url || "") + '" target="_blank" rel="noopener">국민대 공지사항 게시판에서 보기</a>'
+    + '<button class="cta weak" data-close-sheet="1">닫기</button>';
+}
+
+async function openRaw(){
+  const d = state.detail;
+  if (!d) return;
+  let sheet;
+  try {
+    sheet = await api("/api/notices/" + encodeURIComponent(d.key) + "/raw");
+  } catch (err){ apiToast(err); return; }
+  openSheet(rawSheetHtml(d, sheet), "공지 원문");
+  /* 8.3: open on the first quote. */
+  const box = document.querySelector(".sheet");
+  const mark = box && box.querySelector("mark");
+  if (mark) mark.scrollIntoView({block: "center"});
 }
 
 /* ---------- clicks on the T09 screens ---------- */
@@ -1202,6 +1342,27 @@ document.addEventListener("click", function (e){
     askAction(first ? (first.field || "") : "");
     return;
   }
+
+  /* 되묻기: the home card, the choices under a detail row, 모르겠어요 */
+  if ((el = e.target.closest("[data-answer]"))){
+    const card = state.ask;
+    const choice = card && (card.choices || [])[parseInt(el.getAttribute("data-answer"), 10)];
+    if (choice) answerAsk(card, choice, false);
+    return;
+  }
+  if ((el = e.target.closest("[data-ranswer]"))){
+    const open = state.rowAsk;
+    const choice = open && (open.card.choices || [])[parseInt(el.getAttribute("data-ranswer"), 10)];
+    if (choice) answerAsk(open.card, choice, true);
+    return;
+  }
+  if (e.target.closest("[data-ask-skip]")){
+    /* 8.3: hidden until the page is reloaded, and only this question. */
+    if (state.ask) state.askHidden.push(state.ask.field);
+    render();
+    return;
+  }
+  if (e.target.closest("[data-raw]")){ openRaw(); return; }
 
   /* fields */
   if ((el = e.target.closest("[data-status]"))){
