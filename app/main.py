@@ -567,3 +567,9 @@ def reveal_new(student=Depends(current_student)):
         return {"items": [item for item in notice_items(conn, student) if item["is_new"]]}
     finally:
         conn.close()
+
+
+# The chat router comes last: app.chat imports this module (SPEC 8.4).
+from app import chat  # noqa: E402
+
+app.include_router(chat.router)
