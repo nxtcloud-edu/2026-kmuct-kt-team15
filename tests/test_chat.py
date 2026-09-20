@@ -341,6 +341,22 @@ def test_the_budget_is_five_calls_and_ends_in_a_miss(world):
     events = run(world, "뭐 있어?", chat_fn)
     assert len(chat_fn.calls) == 5
     assert len(steps(events)) == 4
+    # The keyless check on call 4 found a:1, so the listing safety net answers (SPEC 8.4).
+    assert last(events)["text"].startswith("지금 지원할 수 있는 공지는 1건입니다.")
+    assert misses(world) == []
+
+
+def test_the_budget_ends_in_a_miss_without_a_keyless_check(world):
+    add_card(world["path"], "a:1")
+    chat_fn = fake_llm(
+        tool("search_notices", query="장학"),
+        tool("get_profile"),
+        tool("get_plan"),
+        tool("check_eligibility", notice_keys=["a:1"]),
+        tool("search_notices", query="또"),
+    )
+    events = run(world, "뭐 있어?", chat_fn)
+    assert len(chat_fn.calls) == 5
     assert last(events)["text"] == chat.MISS_TEXT
     assert misses(world) == [("s1", "뭐 있어?")]
 
@@ -682,3 +698,23 @@ def test_a_keyed_check_carries_the_cards_tasks(world):
     listing, _ = chat.tool_check(conn, world["student"], chat.normalize_args("check_eligibility", {}))
     conn.close()
     assert all("tasks" not in r for r in listing["results"])
+
+
+def test_the_screen_count_is_in_the_context(world):
+    add_card(world["path"], "a:1")
+    chat_fn = fake_llm(answer())
+    run(world, "뭐 있어?", chat_fn)
+    assert '지원할 수 있는 공지는 1개' in chat_fn.calls[0][2]["content"]
+
+
+def test_a_keyless_check_answers_even_when_the_model_gives_up(world):
+    add_card(world["path"], "a:1", title="첫 공지")
+    add_card(world["path"], "a:2", title="둘째 공지")
+    # A keyless check, then found:false twice: the listing answers instead of MISS_TEXT.
+    events = run(world, "그 2개가 뭐야?", fake_llm(
+        tool("check_eligibility"), answer(found=False), answer(found=False)))
+    done = last(events)
+    assert done["text"].startswith("지금 지원할 수 있는 공지는 2건입니다.")
+    assert "첫 공지" in done["text"] and "둘째 공지" in done["text"]
+    assert [r["key"] for r in done["refs"]] == ["a:1", "a:2"]
+    assert misses(world) == []

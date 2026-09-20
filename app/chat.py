@@ -74,7 +74,7 @@ INSTRUCTIONS = """너는 국민대 학생의 공지 질문에 답하는 에이�
 - search_notices로 공지를 찾았으면 답하기 전에 그 key들로 check_eligibility를 부른다. 대조하지 않은 공지는 지원할 수 있다고 말하지 말라.
 - 공지 수를 말할 때는 total을 쓴다. items의 개수를 전체 개수처럼 말하지 말라.
 - 준비물, 서류, 절차, 언제까지 뭘 해야 하는지 물으면 check_eligibility 결과의 tasks(제목과 due 날짜)로 답한다.
-- "전부", "전체", "다", "목록"처럼 지원할 수 있는 공지를 모두 달라는 질문에 검색어가 없으면 notice_keys 없이 check_eligibility를 부른다.
+- "전부", "전체", "다", "목록"처럼 지원할 수 있는 공지를 모두 달라는 질문이나 "그 11개가 뭐야?"처럼 화면의 개수를 가리키는 질문에 검색어가 없으면 notice_keys 없이 check_eligibility를 부른다.
 - 직전 질문과 답이 주어지면 "나머지", "그건", "그중"처럼 이어지는 질문은 그 문맥으로 해석한다. 그래도 지원 가능 여부와 refs는 이번 질문의 도구 결과로만 정한다.
 - 답은 한국어로만 쓴다. 한자, 가나 같은 다른 문자를 섞지 말라.
 - 답은 한국어 두세 문장이다. 위 예시의 값은 보기일 뿐이니 그대로 옮기지 말라."""
@@ -376,9 +376,13 @@ def short(result):
     return text if len(text) <= RESULT_MAX else text[:RESULT_MAX] + " …(줄임)"
 
 
-def context_message(today, calls, notes, last_call, previous=None):
-    """The third message: today, the previous turn, this question's tool results, then what to do next."""
+def context_message(today, calls, notes, last_call, previous=None, eligible=None):
+    """The third message: today, the screen's count, the previous turn, this question's tool results, then what to do next."""
     parts = [f"오늘은 {today}이다."]
+    if eligible is not None:
+        # The greeting the student is looking at, so "그 11개가 뭐야?" has a referent (9/20).
+        parts.append(f"학생 화면에는 \"지금 조건으로 지원할 수 있는 공지는 {eligible}개\"라고 적혀 있다. "
+                     "그 목록은 notice_keys 없는 check_eligibility 결과다.")
     if previous:
         lines = ["직전 질문: " + previous["question"], "직전 답: " + previous["answer"]]
         if previous["keys"]:
@@ -446,6 +450,16 @@ def answer_event(conn, student, reply, seen_keys):
     }
 
 
+def listing_event(conn, student, listing):
+    """The deterministic answer for a keyless check_eligibility the model did not finish (SPEC 8.4)."""
+    rows = listing["results"]
+    names = ", ".join(r["title"] for r in rows[:6])
+    more = f" 외 {len(rows) - 6}건" if len(rows) > 6 else ""
+    reply = {"answer": f"지금 지원할 수 있는 공지는 {listing['eligible']}건입니다. {names}{more}이 있습니다.",
+             "refs": [r["key"] for r in rows], "found": True}
+    return answer_event(conn, student, reply, [r["key"] for r in rows])
+
+
 def miss_event(conn, student, question):
     with conn:
         conn.execute(
@@ -469,12 +483,14 @@ async def run_question(student, question, chat_fn=None):
         calls, notes, seen_keys = [], [], []
         broken, nudged, reply = 0, False, None
         previous = LAST.get(student["id"])  # SPEC 8.4: one turn of memory, this process only
+        listing = None  # the keyless check_eligibility result, kept for the fallback answer
+        eligible = sum(1 for i in main.notice_items(conn, student) if i["eligible"])
         for turn in range(1, BUDGET + 1):
             last_call = turn == BUDGET
             messages = [
                 {"role": "system", "content": INSTRUCTIONS},
                 {"role": "user", "content": question},
-                {"role": "system", "content": context_message(today, calls, notes, last_call, previous)},
+                {"role": "system", "content": context_message(today, calls, notes, last_call, previous, eligible)},
             ]
             notes = []
             started = time.monotonic()
@@ -508,6 +524,8 @@ async def run_question(student, question, chat_fn=None):
                     notes.append(f"{name} 호출이 잘못됐다: {exc}")
                     continue
                 seen_keys.extend(result_keys(result))
+                if name == "check_eligibility" and args["notice_keys"] is None and not args["overrides"]:
+                    listing = result
                 calls.append({"tool": name, "arg": arg_text(args), "signature": signature,
                               "result": short(result)})
                 yield {"type": "step", "title": TOOLS[name], "tool": name,
@@ -529,7 +547,11 @@ async def run_question(student, question, chat_fn=None):
             reply = found
             break
 
-        if reply is None:
+        if reply is None and listing and listing["results"]:
+            # The model gave up on a question the tools already answered: "그 11개가 뭐야?"
+            # ended in MISS_TEXT on 9/20 after a keyless check. Answer from the listing itself.
+            event = listing_event(conn, student, listing)
+        elif reply is None:
             event = miss_event(conn, student, question)
         else:
             event = answer_event(conn, student, reply, seen_keys)
