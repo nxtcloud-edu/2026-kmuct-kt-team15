@@ -456,3 +456,258 @@ def test_flow_from_new_student_to_detail(client):
     assert detail["eligible"] is False
     assert detail["gap"] == "소프트웨어학부 대상"
     assert detail["alt"]["key"] == "hq:scholar"
+
+
+# --- the raw sheet (SPEC 7 원문 시트) ------------------------------------------
+
+
+def add_source(path, key, ord_, kind, label, url, text):
+    conn = db.connect(path)
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO raw_source (notice_key, ord, kind, label, url, text, confidence)"
+            " VALUES (?, ?, ?, ?, ?, ?, NULL)",
+            (key, ord_, kind, label, url, text),
+        )
+        source_id = cur.lastrowid
+    conn.close()
+    return source_id
+
+
+def quote_cond(cond_id, source_id, quote, ctype="none", label="지원 자격", need="재학생 누구나"):
+    return {"id": cond_id, "type": ctype, "label": label, "need": need, "params": {},
+            "source_id": source_id, "quote": quote}
+
+
+BODY = "3월 학사 안내입니다. 전체 평점평균 3.0/4.5 이상인 자가 신청합니다."
+SHEET = "붙임 서류: 신청서 1부. 재학생 누구나 신청할 수 있습니다."
+GPA_QUOTE = "전체 평점평균 3.0/4.5 이상인 자"
+
+
+def test_raw_sheet_path_sections_and_highlights(client):
+    add_card(client.db_path, "hq:1")
+    body_id = add_source(client.db_path, "hq:1", 1, "body", "본문", "https://example/hq:1", BODY)
+    file_id = add_source(client.db_path, "hq:1", 2, "attachment", "붙임1.pdf",
+                         "https://example/hq:1.pdf", SHEET)
+    add_card(client.db_path, "hq:1", conditions=[
+        quote_cond("c1", body_id, GPA_QUOTE),
+        quote_cond("c2", file_id, "재학생 누구나"),
+    ])
+    new_student(client)
+    body = client.get("/api/notices/hq:1/raw").json()
+    assert body["path"] == "본문 → 붙임1.pdf"
+    assert [s["kind"] for s in body["sections"]] == ["body", "attachment"]
+    assert body["sections"][0] == {
+        "kind": "body", "label": "본문", "url": "https://example/hq:1", "text": BODY,
+        "highlights": [[BODY.index(GPA_QUOTE), BODY.index(GPA_QUOTE) + len(GPA_QUOTE)]],
+    }
+    start, end = body["sections"][0]["highlights"][0]
+    assert BODY[start:end] == GPA_QUOTE
+    start, end = body["sections"][1]["highlights"][0]
+    assert SHEET[start:end] == "재학생 누구나"
+
+
+def test_raw_sheet_marks_only_the_section_the_quote_came_from(client):
+    add_card(client.db_path, "hq:1")
+    body_id = add_source(client.db_path, "hq:1", 1, "body", "본문", "https://example/hq:1", BODY)
+    add_source(client.db_path, "hq:1", 2, "image", "이미지 1", "https://example/1.png", BODY)
+    add_card(client.db_path, "hq:1", conditions=[quote_cond("c1", body_id, "전체 평점평균")])
+    new_student(client)
+    sections = client.get("/api/notices/hq:1/raw").json()["sections"]
+    assert sections[0]["highlights"] == [[BODY.index("전체 평점평균"),
+                                          BODY.index("전체 평점평균") + len("전체 평점평균")]]
+    assert sections[1]["highlights"] == []
+
+
+def test_raw_sheet_skips_empty_quotes_and_repeats(client):
+    add_card(client.db_path, "hq:1")
+    body_id = add_source(client.db_path, "hq:1", 1, "body", "본문", "https://example/hq:1", BODY)
+    add_card(client.db_path, "hq:1", conditions=[
+        quote_cond("c1", body_id, "신청합니다"),
+        quote_cond("c2", body_id, "3월 학사"),
+        quote_cond("c3", body_id, "3월 학사"),                      # the same span once
+        {"id": "c4", "type": "unresolved", "label": "지원 자격", "need": "확인 중",
+         "params": {"reason": "못 찾음"}, "source_id": body_id, "quote": ""},
+        quote_cond("c5", body_id, "이 공지에 없는 문장"),
+    ])
+    new_student(client)
+    sections = client.get("/api/notices/hq:1/raw").json()["sections"]
+    assert sections[0]["highlights"] == [
+        [0, len("3월 학사")],
+        [BODY.index("신청합니다"), BODY.index("신청합니다") + len("신청합니다")],
+    ]
+
+
+def test_raw_sheet_of_an_invisible_card_is_404(client):
+    add_card(client.db_path, "hq:hidden", hidden=1)
+    add_source(client.db_path, "hq:hidden", 1, "body", "본문", "https://example/x", BODY)
+    new_student(client)
+    assert client.get("/api/notices/hq:hidden/raw").status_code == 404
+    assert client.get("/api/notices/hq:nothing/raw").status_code == 404
+    del client.headers["X-Student-Id"]
+    assert client.get("/api/notices/hq:hidden/raw").status_code == 401
+
+
+# --- assumed judging (SPEC 7 POST /api/judge) ---------------------------------
+
+
+def test_judge_uses_overrides_and_keeps_the_order(client):
+    add_card(client.db_path, "hq:a", conditions=[gpa_cond(3.0)])
+    add_card(client.db_path, "hq:b", conditions=[gpa_cond(4.0)])
+    new_student(client)
+    client.put("/api/me", json={"gpa": 2.8})
+    body = client.post("/api/judge", json={"notice_keys": ["hq:b", "hq:a"],
+                                           "overrides": {"gpa": 3.5}}).json()
+    assert [r["eligible"] for r in body] == [False, True]
+    assert body[1]["rows"][0]["have"] == "3.50"
+    assert body[0]["gap"] == "학점 0.50 부족"
+    assert list(body[0]) == ["eligible", "gap", "rows"]
+
+
+def test_judge_without_overrides_uses_the_saved_profile(client):
+    add_card(client.db_path, "hq:a", conditions=[gpa_cond(3.0)])
+    new_student(client)
+    client.put("/api/me", json={"gpa": 3.52})
+    assert client.post("/api/judge", json={"notice_keys": ["hq:a"]}).json()[0]["eligible"] is True
+
+
+def test_judge_stores_nothing(client):
+    add_card(client.db_path, "hq:a", conditions=[gpa_cond(3.0)])
+    new_student(client)
+    client.put("/api/me", json={"gpa": 2.8, "history": {"징계 이력": False}})
+    client.post("/api/judge", json={"notice_keys": ["hq:a"],
+                                    "overrides": {"gpa": 3.9, "history": {"편입생": True}}})
+    assert client.get("/api/me").json()["profile"] == {"gpa": 2.8, "history": {"징계 이력": False}}
+
+
+def test_judge_merges_history_overrides_flag_by_flag(client):
+    flag = {"id": "c1", "type": "history", "label": "징계 이력", "need": "없음",
+            "params": {"flag": "징계 이력", "must": False}, "source_id": 1, "quote": "징계"}
+    add_card(client.db_path, "hq:a", conditions=[flag])
+    new_student(client)
+    client.put("/api/me", json={"history": {"징계 이력": False}})
+    body = client.post("/api/judge", json={"notice_keys": ["hq:a"],
+                                           "overrides": {"history": {"편입생": True}}}).json()
+    assert body[0]["eligible"] is True  # the flag that was already there survives
+
+
+@pytest.mark.parametrize("overrides", [{"gpa": 9}, {"semesters": 4.5}, {"나이": 20},
+                                       {"lang_type": "TOEIC"}])
+def test_judge_refuses_bad_overrides(client, overrides):
+    add_card(client.db_path, "hq:a", conditions=[gpa_cond()])
+    new_student(client)
+    res = client.post("/api/judge", json={"notice_keys": ["hq:a"], "overrides": overrides})
+    assert res.status_code == 422
+
+
+def test_judge_refuses_bad_notice_keys(client):
+    new_student(client)
+    assert client.post("/api/judge", json={}).status_code == 422
+    assert client.post("/api/judge", json={"notice_keys": "hq:a"}).status_code == 422
+    assert client.post("/api/judge", json={"notice_keys": [1]}).status_code == 422
+
+
+def test_judge_404_for_a_card_outside_the_list(client):
+    add_card(client.db_path, "hq:a", conditions=[gpa_cond()])
+    add_card(client.db_path, "hq:hidden", hidden=1)
+    new_student(client)
+    res = client.post("/api/judge", json={"notice_keys": ["hq:a", "hq:hidden"]})
+    assert res.status_code == 404
+    assert client.post("/api/judge", json={"notice_keys": ["hq:nothing"]}).status_code == 404
+
+
+# --- the ask-back card (SPEC 7 되묻기 카드, 10.1 A7, A10) ----------------------
+
+
+def income_cond(maximum=8):
+    return {"id": "c1", "type": "income", "label": "소득 분위", "need": f"{maximum}분위 이하",
+            "params": {"max": maximum}, "source_id": 1, "quote": "소득"}
+
+
+def test_ask_is_null_without_a_held_notice(client):
+    add_card(client.db_path, "hq:a", conditions=[gpa_cond()])
+    new_student(client)
+    assert client.get("/api/ask").json() is None      # gpa is an onboarding key
+    client.put("/api/me", json={"gpa": 3.52})
+    assert client.get("/api/ask").json() is None
+
+
+def test_ask_picks_the_key_that_unlocks_the_most(client):
+    add_card(client.db_path, "hq:a", conditions=[last_gpa_cond(3.5)], apply_end="2026-03-18")
+    add_card(client.db_path, "hq:b", conditions=[last_gpa_cond(3.0)], apply_end="2026-03-19")
+    add_card(client.db_path, "hq:c", conditions=[income_cond(8)], apply_end="2026-03-20")
+    new_student(client)
+    assert client.get("/api/ask").json() == {
+        "field": "gpa_last",
+        "question": "직전 학기 평점이 어느 구간인가요?",
+        "unlock": 2,
+        "choices": [{"label": "3.5 이상", "value": {"min": 3.5, "max": None}},
+                    {"label": "3.0 ~ 3.5", "value": {"min": 3.0, "max": 3.49}},
+                    {"label": "3.0 미만", "value": {"min": None, "max": 2.99}}],
+    }
+
+
+def test_ask_asks_a_history_flag_with_yes_and_no(client):
+    flag = {"id": "c1", "type": "history", "label": "편입생", "need": "해당",
+            "params": {"flag": "편입생", "must": True}, "source_id": 1, "quote": "편입생"}
+    add_card(client.db_path, "hq:a", conditions=[flag])
+    new_student(client)
+    card = client.get("/api/ask").json()
+    assert card["field"] == "history:편입생"
+    assert card["question"] == "'편입생'에 해당하나요?"
+    assert card["choices"] == [{"label": "예", "value": True},
+                               {"label": "아니오", "value": False}]
+
+
+def test_ask_ignores_a_card_outside_the_list(client):
+    # SPEC 10.1 A7
+    add_card(client.db_path, "hq:hidden", conditions=[last_gpa_cond()], hidden=1)
+    add_card(client.db_path, "hq:closed", conditions=[last_gpa_cond()], apply_end="2026-03-15")
+    new_student(client)
+    assert client.get("/api/ask").json() is None
+
+
+def test_ask_with_a_given_field(client):
+    # SPEC 10.1 A10: a card with a `fail` row still counts when the key is given.
+    add_card(client.db_path, "hq:a", conditions=[major_cond(), last_gpa_cond(3.5)])
+    new_student(client)
+    client.put("/api/me", json={"major": "경영학부"})
+    assert client.get("/api/ask").json() is None      # the card has a fail row
+    card = client.get("/api/ask", params={"field": "gpa_last"}).json()
+    assert card["field"] == "gpa_last"
+    assert card["unlock"] == 1
+
+
+@pytest.mark.parametrize("field", ["gpa", "langs", "major", "topik", "history:외국인 유학생",
+                                   "없는키", ""])
+def test_ask_refuses_a_field_without_a_question(client, field):
+    # SPEC 10.1 A10
+    add_card(client.db_path, "hq:a", conditions=[last_gpa_cond()])
+    new_student(client)
+    assert client.get("/api/ask", params={"field": field}).status_code == 422
+
+
+def test_ask_with_a_field_nobody_is_missing_is_null(client):
+    add_card(client.db_path, "hq:a", conditions=[last_gpa_cond()])
+    new_student(client)
+    assert client.get("/api/ask", params={"field": "credits_last"}).json() is None
+
+
+def test_answering_the_ask_decides_those_rows(client):
+    add_card(client.db_path, "hq:a", conditions=[last_gpa_cond(3.5)], apply_end="2026-03-18")
+    add_card(client.db_path, "hq:b", conditions=[last_gpa_cond(3.0)], apply_end="2026-03-19")
+    new_student(client)
+    card = client.get("/api/ask").json()
+    assert card["unlock"] == 2
+    for choice in card["choices"]:  # every choice value passes PATCH (SPEC 8.1 step 3)
+        assert client.patch("/api/me", json={card["field"]: choice["value"]}).status_code == 200
+    client.patch("/api/me", json={card["field"]: card["choices"][1]["value"]})  # "3.0 ~ 3.5"
+    items = {i["key"]: i for i in client.get("/api/notices").json()["items"]}
+    assert items["hq:a"]["rows"][0]["status"] == "fail"
+    assert items["hq:b"]["rows"][0]["status"] == "pass"
+    assert client.get("/api/ask").json() is None
+
+
+def test_ask_and_judge_need_a_student(client):
+    assert client.get("/api/ask").status_code == 401
+    assert client.post("/api/judge", json={"notice_keys": []}).status_code == 401
