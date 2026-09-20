@@ -23,6 +23,7 @@
 - 10:09 T10 완료 (C 레인, 22분). main에 합침. `pytest -q` 286 passed 3 skipped.
 - 10:17 T14 완료 (D 레인). main에 합침. `pytest -q` 303 passed 3 skipped. 키를 비운 서버에서 `/api/notices` 200, 301자 422, `/api/chat`이 `error` 한 줄인 것을 확인했다.
 - 10:22 T11 완료 (C 레인). main에 합침. `pytest -q` 303 passed 3 skipped.
+- 10:26 Checkpoint 1 통과. `pytest -q` 303 passed 3 skipped. 테스트 독립 검토(코드를 짜지 않은 에이전트, 레포 사본): 10.1 J1~J20·A1~A13 누락 없음, 기대값 불일치 없음, **실제 결함 0건**. 돌연변이 80곳 중 62곳이 잡혔고 살아남은 9자리는 테스트 구멍으로 기록했다. API 쪽 3자리는 A 레인이, 판정 쪽 6자리는 B 레인이 T16 뒤에 막는다.
 ## 막힘
 
 <!-- 작업 id, 무엇이 막혔나, 시도한 것, 사람이 정할 것 -->
