@@ -224,6 +224,60 @@ select.inp{appearance:none;-webkit-appearance:none}
 @keyframes fill{to{width:100%}}
 
 .empty{text-align:center;color:var(--muted);font-size:15px;padding:48px 0}
+.empty.tight{padding:24px 0}
+
+/* 3. chip tooltip: one open at a time on tap, hover on a mouse device */
+.mchip>.tip{display:none}
+.mchip[aria-expanded="true"]>.tip{display:block}
+@media (hover:hover){.mchip:hover>.tip{display:block}}
+
+/* 5.2, 5.3, 5.9 fields */
+.fields{display:flex;flex-direction:column;gap:32px;padding:8px 0 24px}
+.two{display:flex;gap:16px}
+.two>*{flex:1;min-width:0}
+.sub-field{margin-top:14px}
+.sub-field>.label{display:block;margin-bottom:10px}
+.rightbtn{display:flex;justify-content:flex-end}
+.hint{text-align:center;font-size:14px;color:var(--muted);margin-top:8px}
+.count{background:var(--accent-weak);border-radius:14px;padding:14px 16px;font-size:15px;color:var(--sub)}
+.count b{color:var(--accent);font-weight:700}
+.notes{border-top:1px solid var(--line);padding:16px 8px 0;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.notes .tbtn{color:var(--sub)}
+.notes .tbtn:hover{color:var(--accent)}
+.notes .demo{font-size:14px;color:var(--muted);padding:8px 0}
+
+/* 5.4 home */
+.head{padding-bottom:20px;display:flex;flex-direction:column;gap:12px}
+.statusrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.statusrow .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;flex:none;background:var(--fill);border-radius:999px;
+  padding:8px 14px;font-size:14px;font-weight:500;color:var(--sub)}
+.pill:hover{background:var(--line)}
+.pill[disabled]{opacity:.7;cursor:default}
+.pill .led{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+.cats{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.cats::-webkit-scrollbar{display:none}
+.cats .chip{flex:none;white-space:nowrap}
+.stack{display:flex;flex-direction:column;gap:12px;padding-bottom:24px}
+.row .ttl,.row .sub{display:block}
+.row .txt{flex:1;min-width:0}
+.row .chev{color:var(--line);display:flex;flex:none}
+
+/* 5.5 detail */
+.dhead{padding:4px 0 24px;display:flex;flex-direction:column;gap:6px}
+.dhead .h1{font-size:24px}
+.dhead .lede{margin-top:0}
+.altbox{border:1px solid var(--line);border-radius:16px;padding:0 16px}
+.altbox .row{padding:12px 0}
+.altbox .ttl{font-size:15px}
+.altbox .sub{font-size:13px}
+.steps>button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font-size:16px}
+.steps>button[disabled]{cursor:default}
+.steps .nm{flex:1;min-width:0}
+.steps>button[aria-checked="true"] .n{background:var(--accent);color:#fff}
+.steps>button[aria-checked="true"] .nm{color:var(--muted);text-decoration:line-through}
+.steps .when{font-size:14px;color:var(--muted);flex:none}
+.links{display:flex;gap:16px;flex-wrap:wrap}
 
 @media (prefers-reduced-motion: reduce){
   .screen.enter,.sheet,.push,.splash .mid{animation:none}
@@ -353,6 +407,14 @@ const state = {
   profile: null,
   eligibleCount: 0,
   notices: [],
+  noticesLoaded: false,
+  noticesStale: false,
+  cats: [],           // 5.4 category filter. empty = "전체"
+  open: {info: false, wait: false, fail: false},  // home groups 3, 4, 2
+  checked: false,     // has "새 공지 확인" run yet (5.4 pill text)
+  form: null,         // 5.9 fields, shared by onboarding and 내 정보
+  majorText: "",      // what is typed in the 학과 combo (form.major only takes a listed name)
+  comboOpen: false,
   detailKey: null,
   detail: null,
   toast: null,
@@ -418,7 +480,7 @@ function splashView(){
     + '<div class="bar"><i></i></div></div>';
 }
 
-/* T09~T15 replace these. T03 only wires the frame and the tab bar. */
+/* T11 and T15 replace this one. */
 function tabPlaceholder(title, note){
   return '<div class="screen ground enter">'
     + topbar('<span class="tabtitle">' + esc(title) + '</span>', personBtn)
@@ -426,32 +488,490 @@ function tabPlaceholder(title, note){
     + tabbar() + '</div>';
 }
 
-function pagePlaceholder(title, note){
-  return '<div class="screen enter">' + topbar(backBtn(), "")
-    + '<div class="scroll"><div class="col"><h1 class="h1">' + esc(title) + '</h1>'
-    + '<div class="empty">' + esc(note) + '</div></div></div></div>';
+/* ---------- notice rows and condition chips (UI 3, SPEC 8.1, 8.3) ---------- */
+
+/* 8.1: the four groups. They are not an API field; the screen reads `rows`. */
+function groupOf(it){
+  if (it.eligible) return 1;
+  const rows = it.rows || [];
+  if (rows.some(function (r){ return r.status === "fail"; })) return 2;
+  if (rows.some(function (r){ return r.ask; })) return 3;
+  return 4;
+}
+
+function ddayHtml(end){
+  const text = dday(end);
+  return daysBetween(state.today, end) <= 3
+    ? '<b style="color:var(--urgent);font-weight:700">' + esc(text) + '</b>'
+    : esc(text);
+}
+
+/* SPEC 8.3: the 외국인 유학생 chip is hidden from the student who passes it as a
+   domestic student. The row has no flag, so the pass tooltip names it. */
+function chipRows(rows){
+  const out = [];
+  (rows || []).forEach(function (r, i){
+    if (r.status === "pass" && r.tip === "외국인 유학생: 아니오") return;
+    out.push({row: r, i: i});
+  });
+  return out;
+}
+
+function chipsHtml(key, rows, limit){
+  let xs = chipRows(rows);
+  if (limit){
+    xs = xs.filter(function (x){ return x.row.status === "pass"; })
+      .concat(xs.filter(function (x){ return x.row.status !== "pass"; }))
+      .slice(0, limit);
+  }
+  if (!xs.length) return "";
+  return '<div class="mchips">' + xs.map(function (x, n){
+    const r = x.row;
+    const tone = r.status === "pass" ? "pass " + toneOf(r.type) : (r.status === "fail" ? "fail" : "off");
+    const pos = n === 0 ? " first" : (n === xs.length - 1 ? " last" : "");
+    const id = key + "#" + x.i;
+    return '<button class="mchip ' + tone + pos + '" aria-expanded="' + (state.openTip === id) + '"'
+      + ' data-tip="' + esc(id) + '">' + esc(r.chip)
+      + (r.tip ? '<span class="tip">' + esc(r.tip) + '</span>' : "") + '</button>';
+  }).join("") + '</div>';
+}
+
+function noticeRow(it, limit){
+  const g = groupOf(it);
+  const sub = g === 1
+    ? ddayHtml(it.apply_end) + " · " + esc(it.dept) + (it.planned ? " · 계획 중" : "")
+    : (g === 3 ? "정보를 더 입력하면 확인할 수 있어요" : esc(it.gap || ""));
+  return '<div class="row' + (g === 1 ? "" : " dim") + '">'
+    + '<button class="top" data-key="' + esc(it.key) + '"><span class="txt">'
+    + '<span class="ttl">' + (it.is_new ? '<span class="new">NEW</span>' : "") + esc(it.title) + '</span>'
+    + '<span class="sub">' + sub + '</span></span>'
+    + '<span class="chev">' + ICON.chevron + '</span></button>'
+    + chipsHtml(it.key, it.rows, limit) + '</div>';
+}
+
+/* ---------- 5.9 fields (온보딩과 내 정보가 같이 쓴다) ---------- */
+const DEPT_NAMES = [];
+DEPTS.forEach(function (g){ g[1].forEach(function (n){ DEPT_NAMES.push(n); }); });
+const isDept = (s) => DEPT_NAMES.indexOf(s) >= 0;
+const LANG_RANGE = {"TOEIC": [10, 990], "TOEFL iBT": [0, 120], "TOEIC Speaking": [0, 200], "IELTS": [0, 9]};
+const LANG_UNIT = {"IELTS": "밴드", "OPIc": "등급"};
+/* SPEC 8.1 `field`: these go to 내 정보, the rest are 되묻기 keys (T10). */
+const ONBOARDING_FIELDS = ["gpa", "langs", "major", "topik", "history:외국인 유학생"];
+const ALL_CATEGORIES = ["장학", "인턴·현장실습", "국제교류", "교내활동", "학사·전공", "한국어·문화",
+  "창업", "공모전·경진대회", "자격증·어학"];
+
+const options = (list, cur) => list.map(function (v){
+  return '<option value="' + esc(v) + '"' + (String(v) === String(cur) ? " selected" : "") + '>' + esc(v) + '</option>';
+}).join("");
+
+function fieldIdentity(){
+  const on = state.form.intl;
+  return '<div class="field"><span class="label">신분</span><div class="chips">'
+    + '<button class="chip" data-intl="0" aria-pressed="' + (!on) + '">내국인</button>'
+    + '<button class="chip" data-intl="1" aria-pressed="' + on + '">유학생</button>'
+    + '</div></div>';
+}
+
+function fieldStatus(){
+  const f = state.form;
+  let h = '<div class="field"><span class="label">학사상태</span><div class="chips">'
+    + STATUSES.map(function (s){
+      return '<button class="chip" data-status="' + esc(s) + '" aria-pressed="' + (f.status === s) + '">' + esc(s) + '</button>';
+    }).join("") + '</div>';
+  if (f.status === "졸업예정"){
+    h += '<div class="sub-field"><span class="label">졸업 예정 시점</span><div class="two">'
+      + '<select class="inp" id="gy" aria-label="졸업 예정 연도">' + options(GRAD_YEARS, f.grad_year) + '</select>'
+      + '<select class="inp" id="gt" aria-label="졸업 예정 시기">' + options(GRAD_TERMS, f.grad_term) + '</select>'
+      + '</div></div>';
+  }
+  return h + '</div>';
+}
+
+function fieldSemesters(){
+  const list = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  return '<div class="field"><label class="label" for="sem">마친 학기</label><div class="inrow">'
+    + '<select class="inp" id="sem">' + options(list, state.form.semesters) + '</select>'
+    + '<span class="unit">학기</span></div></div>';
+}
+
+function fieldMajor(){
+  return '<div class="field"><label class="label" for="major">학과</label>'
+    + '<div class="combo"><input class="inp" id="major" type="text" maxlength="50" autocomplete="off"'
+    + ' placeholder="학과를 검색하세요" value="' + esc(state.majorText) + '">'
+    + '<div class="list" id="deptlist" hidden></div></div></div>';
+}
+
+function comboHtml(query){
+  const q = (query || "").trim();
+  let out = "";
+  DEPTS.forEach(function (g){
+    const names = q === "" || g[0].indexOf(q) >= 0
+      ? g[1]
+      : g[1].filter(function (n){ return n.indexOf(q) >= 0; });
+    if (!names.length) return;
+    out += '<div class="grp">' + esc(g[0]) + '</div>' + names.map(function (n){
+      return '<button class="opt" data-dept="' + esc(n) + '">' + esc(n) + '</button>';
+    }).join("");
+  });
+  return out || '<div class="none">검색 결과가 없어요</div>';
+}
+
+function fieldGpa(){
+  return '<div class="field"><label class="label" for="gpa">평균 학점</label><div class="inrow">'
+    + '<input class="inp" id="gpa" type="text" inputmode="decimal" value="' + esc(state.form.gpa) + '">'
+    + '<span class="unit">/ 4.5</span></div></div>';
+}
+
+function fieldLangs(){
+  const f = state.form;
+  let h = '<div class="field"><span class="label">어학 성적</span><div class="chips">'
+    + LANG_TYPES.map(function (t){
+      return '<button class="chip" data-lang="' + esc(t) + '" aria-pressed="'
+        + Object.prototype.hasOwnProperty.call(f.langs, t) + '">' + esc(t) + '</button>';
+    }).join("") + '</div>';
+  LANG_TYPES.forEach(function (t, i){
+    if (!Object.prototype.hasOwnProperty.call(f.langs, t)) return;
+    const v = f.langs[t];
+    const id = "lang" + i;
+    let input;
+    if (t === "IELTS") input = '<select class="inp" id="' + id + '" data-langid="' + esc(t) + '">' + options(IELTS_BANDS, v) + '</select>';
+    else if (t === "OPIc") input = '<select class="inp" id="' + id + '" data-langid="' + esc(t) + '">' + options(OPIC_GRADES, v) + '</select>';
+    else input = '<input class="inp" id="' + id + '" type="text" inputmode="numeric" data-langid="' + esc(t) + '" value="' + esc(v) + '">';
+    h += '<div class="sub-field"><label class="label" for="' + id + '">' + esc(t) + '</label>'
+      + '<div class="inrow">' + input + '<span class="unit">' + esc(LANG_UNIT[t] || "점") + '</span></div></div>';
+  });
+  return h + '</div>';
+}
+
+function fieldTopik(){
+  const cur = state.form.topik;
+  return '<div class="field"><span class="label">한국어능력(TOPIK)</span><div class="chips">'
+    + TOPIK_CHIPS.map(function (c, i){
+      return '<button class="chip" data-topik="' + i + '" aria-pressed="' + (cur != null && Number(cur) === i) + '">'
+        + esc(c) + '</button>';
+    }).join("") + '</div></div>';
+}
+
+function fieldInterests(){
+  const list = state.form.intl ? INTERESTS_INTL : INTERESTS_KR;
+  const cur = state.form.interests;
+  return '<div class="field"><span class="label">관심 분야</span><div class="chips">'
+    + list.map(function (c){
+      return '<button class="chip" data-interest="' + esc(c) + '" aria-pressed="' + (cur.indexOf(c) >= 0) + '">'
+        + esc(c) + '</button>';
+    }).join("") + '</div></div>';
+}
+
+/* ---------- 6.4 profile <-> the fields on screen ---------- */
+const PROFILE_KEYS = ["status", "grad_year", "grad_term", "semesters", "major", "gpa", "langs", "topik",
+  "interests", "gpa_last", "credits_last", "credits_total", "income_bracket", "admission_year", "history"];
+
+/* UI 5.3: the demo seed values a new student starts from. */
+function defaultForm(){
+  return {intl: false, status: "재학", grad_year: 2027, grad_term: "2월", semesters: 5,
+    major: "경영정보학부", gpa: "3.52", langs: {TOEIC: "850"}, topik: 0,
+    interests: ["장학", "인턴·현장실습", "국제교류"]};
+}
+
+function formFromProfile(p){
+  const f = defaultForm();
+  const h = (p && p.history) || {};
+  f.intl = h["외국인 유학생"] === true;
+  if (STATUSES.indexOf(p.status) >= 0) f.status = p.status;
+  if (typeof p.grad_year === "number") f.grad_year = p.grad_year;
+  if (GRAD_TERMS.indexOf(p.grad_term) >= 0) f.grad_term = p.grad_term;
+  f.semesters = typeof p.semesters === "number" ? p.semesters : 0;
+  f.major = typeof p.major === "string" ? p.major : "";
+  f.gpa = typeof p.gpa === "number" ? String(p.gpa) : "";
+  f.langs = Object.assign({}, p.langs || {});
+  f.topik = typeof p.topik === "number" ? p.topik : (f.intl ? 0 : null);
+  f.interests = (p.interests || []).slice();
+  return f;
+}
+
+/* SPEC 8.3: PUT replaces the whole profile, so every key the screen does not show
+   (되묻기 answers, the other identity's keys) rides along from the last profile. */
+function formToProfile(){
+  const f = state.form;
+  const base = state.profile || {};
+  const p = {};
+  PROFILE_KEYS.forEach(function (k){ if (base[k] !== undefined) p[k] = base[k]; });
+  p.status = f.status;
+  if (f.status === "졸업예정"){
+    p.grad_year = parseInt(f.grad_year, 10);
+    p.grad_term = f.grad_term;
+  } else {
+    delete p.grad_year;
+    delete p.grad_term;
+  }
+  p.semesters = parseInt(f.semesters, 10);
+  p.major = f.major;
+  p.interests = f.interests.slice();
+  p.history = Object.assign({}, base.history || {});
+  p.history["외국인 유학생"] = !!f.intl;
+  if (f.intl){
+    p.topik = f.topik == null ? null : parseInt(f.topik, 10);
+  } else {
+    p.gpa = (f.gpa === "" || f.gpa == null) ? null : parseFloat(f.gpa);
+    const langs = {};
+    LANG_TYPES.forEach(function (t){
+      if (!Object.prototype.hasOwnProperty.call(f.langs, t)) return;
+      const v = String(f.langs[t] == null ? "" : f.langs[t]).trim();
+      if (v !== "") langs[t] = v;   // SPEC 8.3: a test with no score is dropped
+    });
+    p.langs = langs;
+  }
+  return p;
+}
+
+/* SPEC 7 학생 정보 검증. 내 정보 keeps a value that fails here to itself (it is
+   still being typed) instead of sending it and showing an error toast. */
+function validProfile(p){
+  const isInt = (v) => typeof v === "number" && isFinite(v) && Math.floor(v) === v;
+  if (STATUSES.indexOf(p.status) < 0) return false;
+  if (!isInt(p.semesters) || p.semesters < 0 || p.semesters > 8) return false;
+  if (typeof p.major !== "string" || p.major.length < 1 || p.major.length > 50) return false;
+  if (p.status === "졸업예정"){
+    if (!isInt(p.grad_year) || p.grad_year < 2026 || p.grad_year > 2029) return false;
+    if (GRAD_TERMS.indexOf(p.grad_term) < 0) return false;
+  }
+  if (p.gpa != null){
+    if (typeof p.gpa !== "number" || !isFinite(p.gpa) || p.gpa < 0 || p.gpa > 4.5) return false;
+  }
+  if (p.topik != null && (!isInt(p.topik) || p.topik < 0 || p.topik > 6)) return false;
+  const langs = p.langs || {};
+  const names = Object.keys(langs);
+  for (let i = 0; i < names.length; i++){
+    const t = names[i];
+    const v = String(langs[t]).trim();
+    if (v === "") return false;
+    if (t === "OPIc"){
+      if (OPIC_GRADES.indexOf(v) < 0) return false;
+    } else {
+      const range = LANG_RANGE[t];
+      const n = Number(v);
+      if (!range || !isFinite(n) || n < range[0] || n > range[1]) return false;
+    }
+  }
+  return !(p.interests || []).some(function (c){ return ALL_CATEGORIES.indexOf(c) < 0; });
+}
+
+function isIntl(){
+  const h = (state.profile || {}).history || {};
+  return h["외국인 유학생"] === true;
+}
+
+/* UI 4: changing the identity drops the interests the new list does not have
+   and clears the category filter. */
+function setIntl(v){
+  state.form.intl = v;
+  const list = v ? INTERESTS_INTL : INTERESTS_KR;
+  state.form.interests = state.form.interests.filter(function (c){ return list.indexOf(c) >= 0; });
+  state.cats = [];
+}
+
+/* ---------- 5.2, 5.3 onboarding ---------- */
+function obStep1(intl){
+  const ok = isDept(state.majorText);
+  return '<div class="screen enter">'
+    + '<div class="topbar col"><span style="width:40px;flex:none"></span>'
+    + '<span class="prog"><i style="width:50%"></i></span></div>'
+    + '<div class="scroll"><div class="col">'
+    + '<div class="rightbtn"><button class="tbtn" data-switch="' + (intl ? "0" : "1") + '">'
+    + (intl ? "유학생이 아니에요" : "혹시 유학생이신가요?") + '</button></div>'
+    + '<div class="fields">'
+    + '<div><h1 class="h1">학사 상태와 학과를\n알려주세요</h1><div class="lede">'
+    + (intl ? "유학생 지원 자격에 맞춰 안내해 드려요" : "공지마다 다른 지원 자격을 대신 따져 드려요")
+    + '</div></div>'
+    + fieldStatus() + fieldSemesters() + fieldMajor()
+    + '</div></div></div>'
+    + '<div class="bottom"><div class="col">'
+    + '<button class="cta' + (ok ? "" : " off") + '" id="nextbtn"' + (ok ? "" : " disabled") + ' data-next="1">다음</button>'
+    + '<div class="hint" id="majorhint"' + (ok ? ' style="display:none"' : "") + '>학과를 선택해 주세요</div>'
+    + '</div></div></div>';
+}
+
+function obStep2(intl){
+  return '<div class="screen enter">'
+    + '<div class="topbar col">'
+    + '<button class="iconbtn back" data-go="' + (intl ? "obi1" : "ob1") + '" aria-label="이전">' + ICON.back + '</button>'
+    + '<span class="prog"><i style="width:100%"></i></span></div>'
+    + '<div class="scroll"><div class="col"><div class="fields">'
+    + '<div><h1 class="h1">' + (intl ? "관심 분야를\n알려주세요" : "성적과 관심 분야를\n알려주세요") + '</h1>'
+    + '<div class="lede">추천에만 쓰고, 언제든 바꿀 수 있어요</div></div>'
+    + (intl ? fieldTopik() + fieldInterests() : fieldGpa() + fieldLangs() + fieldInterests())
+    + '</div></div></div>'
+    + '<div class="bottom"><div class="col"><button class="cta" data-finish="1">내 기회 찾기</button></div></div>'
+    + '</div>';
+}
+
+/* ---------- 5.4 home ---------- */
+const catOk = (it) => state.cats.length === 0 || state.cats.indexOf(it.category) >= 0;
+
+function refreshPill(){
+  const d = parseDate(state.today);
+  const when = state.checked ? "방금 확인" : (d.getMonth() + 1) + "월 " + d.getDate() + "일 기준";
+  return '<button class="pill" data-refresh="1"><span class="led"></span>'
+    + '공지 새로고침 · ' + esc(when) + ICON.refresh + '</button>';
+}
+
+function catsRow(){
+  const list = CATS.filter(function (c){ return c !== "한국어·문화" || isIntl(); });
+  return '<div class="cats">'
+    + '<button class="chip" data-cat="" aria-pressed="' + (state.cats.length === 0) + '">전체</button>'
+    + list.map(function (c){
+      return '<button class="chip" data-cat="' + esc(c) + '" aria-pressed="' + (state.cats.indexOf(c) >= 0) + '">'
+        + esc(c) + '</button>';
+    }).join("") + '</div>';
+}
+
+function moreBlock(id, items, text){
+  if (!items.length) return "";
+  const open = state.open[id];
+  return '<button class="more" data-open="' + id + '" aria-expanded="' + open + '">'
+    + esc(open ? "접기" : text) + '</button>'
+    + (open ? items.map(function (it){ return noticeRow(it, 4); }).join("") : "");
 }
 
 function homeView(){
+  const shown = state.notices.filter(catOk);
+  const g = {1: [], 2: [], 3: [], 4: []};
+  shown.forEach(function (it){ g[groupOf(it)].push(it); });
+  const total = state.notices.filter(function (it){ return it.eligible; }).length;
+  const filtered = state.cats.length > 0;
+
+  let list = "";
+  if (!state.noticesLoaded){
+    list = '<div class="empty"></div>';
+  } else {
+    if (g[1].length) list += g[1].map(function (it){ return noticeRow(it, 4); }).join("");
+    else if (filtered){
+      list += '<div class="empty">선택한 분야에 맞는 공지가 없어요'
+        + '<div style="margin-top:8px"><button class="tbtn" data-cat="">전체 보기</button></div></div>';
+    } else if (!g[3].length){
+      list += '<div class="empty tight">조건에 맞는 공지가 없어요</div>';
+    }
+    list += moreBlock("info", g[3], "정보를 더 입력하면 판단할 수 있어요 " + g[3].length + "건");
+    list += moreBlock("wait", g[4], "아직 확인 중인 공지 " + g[4].length + "개");
+    list += moreBlock("fail", g[2], "조건이 안 맞는 공지 " + g[2].length + "개");
+  }
+
   return '<div class="screen ground enter"><div class="scroll"><div class="col">'
     + '<div class="topbar">'
     + '<span style="display:flex;align-items:center;gap:6px"><img src="' + LOGO_ICON + '" alt="" style="width:20px;height:20px;border-radius:6px"><b style="font-size:16px;font-weight:700">UniQ</b></span>'
     + personBtn + '</div>'
-    + '<div class="empty">홈 화면은 T09가 만든다</div>'
-    + '</div></div>' + tabbar() + '</div>';
+    + '<div class="head"><h1 class="h1">지원할 수 있는 기회가\n<em>' + g[1].length + '개</em> 있어요</h1>'
+    + '<div class="statusrow">'
+    + (filtered ? '<span class="label">전체 ' + total + '개 중</span>' : '<span></span>')
+    + refreshPill() + '</div></div>'
+    + '<div class="stack">'
+    /* T11 puts the 오늘 할 일 card here, T10 the 되묻기 card. */
+    + catsRow()
+    + '<div class="card">' + list + '</div>'
+    + '</div></div></div>' + tabbar() + '</div>';
+}
+
+/* ---------- 5.5 detail ---------- */
+const kvRow = (k, v) => '<div class="kv"><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>';
+
+function detailCta(d, g){
+  if (d.planned) return '<button class="cta weak" data-plan="0">계획에서 빼기</button>';
+  if (g === 3) return '<button class="cta" data-ask-first="1">정보 입력하고 확인하기</button>';
+  if (g === 1) return '<button class="cta" data-plan="1">계획에 넣기</button>';
+  return '<button class="cta off" disabled>' + esc(d.gap || "") + '</button>';
+}
+
+function detailView(){
+  const d = state.detail;
+  if (!d || d.key !== state.detailKey){
+    return '<div class="screen enter">' + topbar(backBtn(), "") + '<div class="scroll"></div></div>';
+  }
+  const rows = d.rows || [];
+  const g = groupOf(d);
+  const verdict = {
+    1: ["ok", ICON.check, "지원할 수 있어요"],
+    2: ["no", ICON.x, "지금은 지원할 수 없어요"],
+    3: ["wait", "?", "정보를 더 입력하면 확인할 수 있어요"],
+    4: ["wait", "?", d.gap || "지원 자격 확인 중"]
+  }[g];
+
+  let h = '<div class="screen enter">' + topbar(backBtn(), "") + '<div class="scroll">';
+  h += '<div class="col dhead"><span class="label">' + esc(d.dept) + '</span>'
+    + '<h1 class="h1">' + esc(d.title) + '</h1>'
+    + '<div class="lede">' + esc(longDate(d.apply_end)) + ' 마감 · ' + ddayHtml(d.apply_end) + '</div></div>';
+
+  h += '<div class="band"></div><div class="col sec">'
+    + '<div class="verdict ' + verdict[0] + '"><span class="ic">' + verdict[1] + '</span>' + esc(verdict[2]) + '</div>'
+    + chipsHtml(d.key, rows, 0)
+    + rows.filter(function (r){ return r.ask; }).map(function (r){
+      return '<div class="askrow"><span>' + esc(r.ask) + '</span>'
+        + '<button class="tbtn" data-ask="' + esc(r.field || "") + '">입력하기</button></div>';
+    }).join("") + '</div>';
+
+  if (g === 2 && d.alt){
+    h += '<div class="band"></div><div class="col sec"><h2>대신 이건 지원할 수 있어요</h2>'
+      + '<div class="altbox">' + noticeRow(d.alt, 4) + '</div></div>';
+  }
+
+  const tasks = d.tasks || [];
+  if (tasks.length){
+    h += '<div class="band"></div><div class="col sec"><h2>준비할 것</h2><div class="steps">'
+      + tasks.map(function (t, i){
+        return '<button role="checkbox" aria-checked="' + (!!t.done) + '" data-task="' + esc(t.id) + '"'
+          + (d.planned ? "" : " disabled") + '>'
+          + '<span class="n">' + (t.done ? ICON.checkSm : (i + 1)) + '</span>'
+          + '<span class="nm">' + esc(t.title) + '</span>'
+          + '<span class="when">' + (t.due ? esc(longDate(t.due)) : "") + '</span></button>';
+      }).join("") + '</div>'
+      + (d.planned ? "" : '<div class="askrow"><span>계획에 넣으면 하나씩 체크할 수 있어요</span></div>')
+      + '</div>';
+  }
+
+  /* SPEC 8.3: 자격요건 joins the chips, not `need`, so each one reads on its own. */
+  const req = rows.length ? rows.map(function (r){ return r.chip; }).join(" · ") : "재학생 누구나";
+  const period = (d.apply_start ? shortDate(d.apply_start) + " ~ " : "~ ") + longDate(d.apply_end);
+  h += '<div class="band"></div><div class="col sec"><h2>공지 요약</h2>'
+    + '<dl style="margin:0">' + kvRow("자격요건", req) + kvRow("신청 기간", period)
+    + (d.fields || []).map(function (f){ return kvRow(f[0], f[1]); }).join("") + '</dl>'
+    + '<div class="links"><button class="tbtn" data-raw="1">' + esc(d.dept) + ' 원문 보기</button>'
+    + '<a class="tbtn" href="' + esc(d.url || "") + '" target="_blank" rel="noopener">국민대 공지사항 게시판에서 보기</a>'
+    + '</div></div>';
+
+  return h + '</div><div class="bottom"><div class="col">' + detailCta(d, g) + '</div></div></div>';
+}
+
+/* ---------- 5.9 profile ---------- */
+const countText = () => '지금 조건으로 <b>' + state.eligibleCount + '개</b>에 지원할 수 있어요';
+
+function profileView(){
+  const f = state.form;
+  const d = parseDate(state.today);
+  return '<div class="screen enter">' + topbar(backBtn(), "")
+    + '<div class="scroll"><div class="col fields">'
+    + '<h1 class="h1">내 정보</h1>'
+    + '<div class="count" id="cnt">' + countText() + '</div>'
+    + fieldIdentity() + fieldStatus() + fieldSemesters() + fieldMajor()
+    + (f.intl ? fieldTopik() + fieldInterests() : fieldGpa() + fieldLangs() + fieldInterests())
+    + '<div class="notes">'
+    /* SPEC 8.3 기준일 안내 */
+    + '<span class="demo">데모 기준일은 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일('
+    + WEEKDAYS[d.getDay()] + ')이에요</span>'
+    + '<button class="tbtn" data-restart="1">처음부터 보기</button>'
+    + '<button class="tbtn" data-alerts="1">마감 알림 받아보기</button>'
+    + '</div></div></div></div>';
 }
 
 const VIEWS = {
   splash: splashView,
-  ob1: function (){ return pagePlaceholder("온보딩", "온보딩 화면은 T09가 만든다"); },
-  ob2: function (){ return pagePlaceholder("온보딩", "온보딩 화면은 T09가 만든다"); },
-  obi1: function (){ return pagePlaceholder("온보딩", "온보딩 화면은 T09가 만든다"); },
-  obi2: function (){ return pagePlaceholder("온보딩", "온보딩 화면은 T09가 만든다"); },
+  ob1: function (){ return obStep1(false); },
+  ob2: function (){ return obStep2(false); },
+  obi1: function (){ return obStep1(true); },
+  obi2: function (){ return obStep2(true); },
   home: homeView,
   chat: function (){ return tabPlaceholder("대화", "대화 화면은 T15가 만든다"); },
   plan: function (){ return tabPlaceholder("내 계획", "내 계획 화면은 T11이 만든다"); },
-  detail: function (){ return pagePlaceholder("공지", "상세 화면은 T09가 만든다"); },
-  profile: function (){ return pagePlaceholder("내 정보", "내 정보 화면은 T09가 만든다"); }
+  detail: detailView,
+  profile: profileView
 };
 
 /* ---------- render ---------- */
@@ -468,18 +988,58 @@ function render(){
   drawOverlay();
 }
 
-/* 4. moving between screens closes the sheet and any chip tooltip, and goes to the top. */
+/* 4. moving between screens saves what is being typed, closes the sheet and any
+   chip tooltip, and goes to the top. */
 function go(screen, from){
   if (state.screen === screen) return;
-  if (from) state.back = from;
+  syncInputs();
+  if (state.screen === "profile" && scheduleSave._t){
+    clearTimeout(scheduleSave._t);
+    scheduleSave._t = null;
+    saveProfile();
+  }
+  if (from){
+    /* 4: detail <-> 내 정보 and detail -> detail keep the screen they came from.
+       From onboarding the back button goes home. */
+    if (from === "detail" || from === "profile"){ /* keep state.back */ }
+    else if (from.indexOf("ob") === 0) state.back = "home";
+    else state.back = from;
+  }
+  const prev = state.screen;
   state.openTip = null;
   state.sheet = null;
+  state.comboOpen = false;
   state.screen = screen;
   lastScreen = null;
+  enterForm(screen, prev);
   render();
+  if (screen === "home" && (!state.noticesLoaded || state.noticesStale)) refreshNotices();
 }
 
-function openDetail(key){ state.detailKey = key; go("detail", state.screen); }
+/* The onboarding draft survives ob1 <-> ob2. Every other way in rebuilds the
+   fields from the profile the server last gave us. */
+function enterForm(screen, prev){
+  const isOb = screen.indexOf("ob") === 0;
+  const wasOb = prev && prev.indexOf("ob") === 0;
+  if (screen !== "profile" && !(isOb && !wasOb)) return;
+  const p = state.profile;
+  state.form = (p && Object.keys(p).length) ? formFromProfile(p) : defaultForm();
+  if (isOb) state.form.intl = (screen === "obi1" || screen === "obi2");
+  state.majorText = state.form.major;
+  state.comboOpen = false;
+}
+
+function openDetail(key){
+  state.detailKey = key;
+  state.detail = null;
+  if (state.screen === "detail"){
+    state.openTip = null;
+    render();
+  } else {
+    go("detail", state.screen);
+  }
+  loadDetail(key);
+}
 
 /* ---------- one delegated click handler ---------- */
 document.addEventListener("click", function (e){
@@ -496,6 +1056,262 @@ document.addEventListener("click", function (e){
     if (key) openDetail(key);
     return;
   }
+});
+
+/* ---------- 4. keeping typed values, the 학과 combo, the 다음 button ---------- */
+
+/* 4: before any re-render the values in the input boxes move into `state`, or a
+   typed 학점 disappears when an 어학 chip is pressed. */
+function syncInputs(){
+  if (!state.form) return;
+  const el = (id) => document.getElementById(id);
+  const sem = el("sem");
+  if (sem) state.form.semesters = parseInt(sem.value, 10);
+  const gy = el("gy");
+  if (gy) state.form.grad_year = parseInt(gy.value, 10);
+  const gt = el("gt");
+  if (gt) state.form.grad_term = gt.value;
+  const gpa = el("gpa");
+  if (gpa) state.form.gpa = gpa.value;
+  const major = el("major");
+  if (major){
+    state.majorText = major.value;
+    if (isDept(major.value)) state.form.major = major.value;   // 4: only a listed name
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-langid]"), function (node){
+    state.form.langs[node.getAttribute("data-langid")] = node.value;
+  });
+}
+
+function updateCombo(){
+  const box = document.getElementById("deptlist");
+  if (!box) return;
+  if (!state.comboOpen){ box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = comboHtml(state.majorText);
+}
+
+/* 5.2: while the 학과 box has focus only the button and the hint change, so the
+   caret and the open list survive. */
+function updateNext(){
+  const btn = document.getElementById("nextbtn");
+  if (!btn) return;
+  const ok = isDept(state.majorText);
+  btn.disabled = !ok;
+  btn.classList.toggle("off", !ok);
+  const hint = document.getElementById("majorhint");
+  if (hint) hint.style.display = ok ? "none" : "";
+}
+
+function afterFormChange(){
+  render();
+  if (state.screen === "profile") scheduleSave();
+}
+
+/* 8.3: 내 정보 saves 400ms after the last change. */
+function scheduleSave(){
+  clearTimeout(scheduleSave._t);
+  scheduleSave._t = setTimeout(function (){ scheduleSave._t = null; saveProfile(); }, 400);
+}
+
+async function saveProfile(){
+  syncInputs();
+  const profile = formToProfile();
+  if (!validProfile(profile)) return;   // 8.3: a value still being typed is not sent
+  try {
+    const me = await api("/api/me", {method: "PUT", body: profile});
+    state.profile = me.profile;
+    state.eligibleCount = me.eligible_count;
+    state.noticesStale = true;
+    const box = document.getElementById("cnt");
+    if (box) box.innerHTML = countText();
+  } catch (err){ apiToast(err); }
+}
+
+async function finishOnboarding(){
+  syncInputs();
+  try {
+    const me = await api("/api/me", {method: "PUT", body: formToProfile()});
+    state.profile = me.profile;
+    state.eligibleCount = me.eligible_count;
+  } catch (err){ apiToast(err); return; }
+  /* 8.3: the interests become the category filter once, on the first home. */
+  const list = CATS.filter(function (c){ return c !== "한국어·문화" || isIntl(); });
+  state.cats = (state.form.interests || []).filter(function (c){ return list.indexOf(c) >= 0; });
+  state.noticesStale = true;
+  go("home");
+}
+
+async function refreshNotices(){
+  try {
+    const body = await api("/api/notices");
+    state.notices = (body && body.items) || [];
+    state.noticesLoaded = true;
+    state.noticesStale = false;
+  } catch (err){ apiToast(err); }
+  render();
+}
+
+async function loadDetail(key){
+  try {
+    const detail = await api("/api/notices/" + encodeURIComponent(key));
+    if (state.detailKey !== key) return;
+    state.detail = detail;
+    render();
+  } catch (err){ apiToast(err); }
+}
+
+function askAction(field){
+  /* ponytail: a 되묻기 key still goes to 내 정보 like the mockup does. T10 unfolds
+     the GET /api/ask?field= choices under the row instead (SPEC 8.3). */
+  go("profile", state.screen);
+}
+
+/* ---------- clicks on the T09 screens ---------- */
+document.addEventListener("click", function (e){
+  let el;
+
+  /* home and detail */
+  if ((el = e.target.closest("[data-tip]"))){
+    const id = el.getAttribute("data-tip");
+    state.openTip = state.openTip === id ? null : id;
+    render();
+    return;
+  }
+  if ((el = e.target.closest("[data-key]"))){ openDetail(el.getAttribute("data-key")); return; }
+  if ((el = e.target.closest("[data-open]"))){
+    const id = el.getAttribute("data-open");
+    state.open[id] = !state.open[id];
+    render();
+    return;
+  }
+  if ((el = e.target.closest("[data-cat]"))){
+    const cat = el.getAttribute("data-cat");
+    if (cat === "") state.cats = [];   // SPEC 8.3: "전체" turns every filter off
+    else {
+      const at = state.cats.indexOf(cat);
+      if (at >= 0) state.cats.splice(at, 1); else state.cats.push(cat);
+    }
+    render();
+    return;
+  }
+  if ((el = e.target.closest("[data-ask]"))){ askAction(el.getAttribute("data-ask")); return; }
+  if (e.target.closest("[data-ask-first]")){
+    const rows = (state.detail && state.detail.rows) || [];
+    const first = rows.filter(function (r){ return r.ask; })[0];
+    askAction(first ? (first.field || "") : "");
+    return;
+  }
+
+  /* fields */
+  if ((el = e.target.closest("[data-status]"))){
+    syncInputs();
+    state.form.status = el.getAttribute("data-status");
+    afterFormChange();
+    return;
+  }
+  if ((el = e.target.closest("[data-intl]"))){
+    syncInputs();
+    setIntl(el.getAttribute("data-intl") === "1");
+    afterFormChange();
+    return;
+  }
+  if ((el = e.target.closest("[data-lang]"))){
+    syncInputs();
+    const test = el.getAttribute("data-lang");
+    if (Object.prototype.hasOwnProperty.call(state.form.langs, test)) delete state.form.langs[test];
+    else state.form.langs[test] = LANG_DEFAULT[test];
+    afterFormChange();
+    return;
+  }
+  if ((el = e.target.closest("[data-topik]"))){
+    syncInputs();
+    state.form.topik = parseInt(el.getAttribute("data-topik"), 10);
+    afterFormChange();
+    return;
+  }
+  if ((el = e.target.closest("[data-interest]"))){
+    syncInputs();
+    const cat = el.getAttribute("data-interest");
+    const at = state.form.interests.indexOf(cat);
+    if (at >= 0) state.form.interests.splice(at, 1); else state.form.interests.push(cat);
+    afterFormChange();
+    return;
+  }
+  if ((el = e.target.closest("[data-dept]"))){
+    const name = el.getAttribute("data-dept");
+    state.majorText = name;
+    state.form.major = name;
+    const input = document.getElementById("major");
+    if (input) input.value = name;
+    state.comboOpen = false;
+    updateCombo();
+    updateNext();
+    if (state.screen === "profile") scheduleSave();
+    return;
+  }
+
+  /* onboarding and 내 정보 */
+  if (e.target.closest("[data-next]")){
+    syncInputs();
+    if (!isDept(state.majorText)) return;
+    go(state.form.intl ? "obi2" : "ob2", state.screen);
+    return;
+  }
+  if ((el = e.target.closest("[data-switch]"))){
+    syncInputs();
+    const intl = el.getAttribute("data-switch") === "1";
+    setIntl(intl);
+    go(intl ? "obi1" : "ob1", state.screen);
+    return;
+  }
+  if (e.target.closest("[data-finish]")){ finishOnboarding(); return; }
+  if (e.target.closest("[data-restart]")){ go(isIntl() ? "obi1" : "ob1", state.screen); return; }
+
+  /* T10 fills data-raw, T11 data-plan, data-task, data-refresh and data-alerts. */
+});
+
+document.addEventListener("input", function (e){
+  const node = e.target;
+  if (!node || !node.tagName) return;
+  if (node.id === "major"){
+    state.majorText = node.value;
+    const ok = isDept(node.value);
+    if (ok) state.form.major = node.value;
+    updateCombo();
+    updateNext();
+    if (ok && state.screen === "profile") scheduleSave();
+    return;
+  }
+  if (node.id === "gpa"){
+    state.form.gpa = node.value;
+    if (state.screen === "profile") scheduleSave();
+    return;
+  }
+  if (node.getAttribute("data-langid")){
+    state.form.langs[node.getAttribute("data-langid")] = node.value;
+    if (state.screen === "profile") scheduleSave();
+  }
+});
+
+document.addEventListener("change", function (e){
+  const node = e.target;
+  if (!node || !node.tagName) return;
+  if (node.id === "sem") state.form.semesters = parseInt(node.value, 10);
+  else if (node.id === "gy") state.form.grad_year = parseInt(node.value, 10);
+  else if (node.id === "gt") state.form.grad_term = node.value;
+  else if (node.getAttribute("data-langid")) state.form.langs[node.getAttribute("data-langid")] = node.value;
+  else return;
+  if (state.screen === "profile") scheduleSave();
+});
+
+/* 3. 학과 콤보: opens on focus, closes 0.15s after it leaves (time to tap a row). */
+document.addEventListener("focusin", function (e){
+  if (e.target && e.target.id === "major"){ state.comboOpen = true; updateCombo(); }
+});
+document.addEventListener("focusout", function (e){
+  if (!e.target || e.target.id !== "major") return;
+  setTimeout(function (){ state.comboOpen = false; updateCombo(); }, 150);
 });
 
 document.addEventListener("keydown", function (e){
@@ -535,6 +1351,8 @@ async function boot(){
     state.sources = cfg.sources;
     state.suggested = cfg.suggested_questions || [];
   } catch (e) { /* keep the defaults so the splash still shows */ }
+  state.form = defaultForm();
+  state.majorText = state.form.major;
   state.studentId = readId();
   if (!state.studentId) await newStudent();
   render();
