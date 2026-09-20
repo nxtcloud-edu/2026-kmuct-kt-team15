@@ -219,8 +219,10 @@ select.inp{appearance:none;-webkit-appearance:none}
 .splash .box{background:#fff;padding:14px 18px;border-radius:16px}
 .splash .box img{width:120px;display:block}
 .splash .tag{font-size:14px;color:var(--sub);text-align:center;margin:14px 32px 0}
-.splash .bar{position:absolute;bottom:max(40px,var(--safe-b));left:50%;transform:translateX(-50%);width:120px;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
-.splash .bar>i{display:block;height:100%;width:0;background:var(--accent);animation:fill 2.4s linear forwards}
+/* `gauge`, not `bar`: the calendar `.bar>i` (5.8) is absolute at right:0, which
+   this rule does not override, so the fill used to grow from the right. */
+.splash .gauge{position:absolute;bottom:max(40px,var(--safe-b));left:50%;transform:translateX(-50%);width:120px;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.splash .gauge>i{display:block;height:100%;width:0;background:var(--accent);animation:fill 2.4s linear forwards}
 @keyframes fill{to{width:100%}}
 
 .empty{text-align:center;color:var(--muted);font-size:15px;padding:48px 0}
@@ -388,7 +390,7 @@ select.inp{appearance:none;-webkit-appearance:none}
   .screen.enter,.sheet,.push,.splash .mid,.cal.next,.cal.prev,.stepline{animation:none}
   .seg>i{transition:none}
   .shimmer{animation:none;color:var(--muted)}
-  .splash .bar>i{animation:none;width:100%}
+  .splash .gauge>i{animation:none;width:100%}
   .spin{animation-duration:2s}
 }
 </style>
@@ -598,7 +600,7 @@ function splashView(){
     + '<button class="hit" data-skip-splash="1" aria-label="바로 시작하기"></button>'
     + '<div class="mid"><div class="box"><img src="' + LOGO_WORDMARK + '" alt="UniQ"></div>'
     + '<div class="tag">흩어진 학교 공지, 내 조건에 맞는 것만</div></div>'
-    + '<div class="bar"><i></i></div></div>';
+    + '<div class="gauge"><i></i></div></div>';
 }
 
 /* ---------- notice rows and condition chips (UI 3, SPEC 8.1, 8.3) ---------- */
