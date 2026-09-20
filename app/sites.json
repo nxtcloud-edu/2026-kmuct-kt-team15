@@ -1,0 +1,182 @@
+[
+  {
+    "source_id": "archi",
+    "name": "건축대학",
+    "engine": "C",
+    "list_url": "https://archi.kookmin.ac.kr/life/notice"
+  },
+  {
+    "source_id": "art",
+    "name": "예술대학",
+    "engine": "C",
+    "list_url": "https://art.kookmin.ac.kr/community/notice"
+  },
+  {
+    "source_id": "auto",
+    "name": "자동차모빌리티대학",
+    "engine": "B",
+    "list_url": "https://auto.kookmin.ac.kr/board/notice"
+  },
+  {
+    "source_id": "biz",
+    "name": "경영대학",
+    "engine": "C",
+    "list_url": "https://biz.kookmin.ac.kr/community/notice"
+  },
+  {
+    "source_id": "cieek",
+    "name": "공학교육혁신센터",
+    "engine": "C",
+    "list_url": "https://cieek.kookmin.ac.kr/community/notice"
+  },
+  {
+    "source_id": "cs",
+    "name": "소프트웨어융합대학",
+    "engine": "C",
+    "list_url": "https://cs.kookmin.ac.kr/news/notice"
+  },
+  {
+    "source_id": "cst",
+    "name": "과학기술대학",
+    "engine": "C",
+    "list_url": "https://cst.kookmin.ac.kr/community/notice"
+  },
+  {
+    "source_id": "culture",
+    "name": "교양대학",
+    "engine": "C",
+    "list_url": "https://culture.kookmin.ac.kr/community/notice"
+  },
+  {
+    "source_id": "design_sangsang",
+    "name": "조형대학(상상공방)",
+    "engine": "C",
+    "list_url": "https://design.kookmin.ac.kr/sangsang/notice"
+  },
+  {
+    "source_id": "dormitory",
+    "name": "생활관",
+    "engine": "C",
+    "list_url": "https://dormitory.kookmin.ac.kr/notice/notice"
+  },
+  {
+    "source_id": "engineering",
+    "name": "공과대학",
+    "engine": "A2",
+    "list_url": "https://engineering.kookmin.ac.kr/engineering/etc-board/eng-notice.do"
+  },
+  {
+    "source_id": "hq_cat10",
+    "name": "본부-교내채용",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/10/index.do"
+  },
+  {
+    "source_id": "hq_cat11",
+    "name": "본부-교외채용",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/11/index.do"
+  },
+  {
+    "source_id": "hq_cat4",
+    "name": "본부-학사공지",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/4/index.do"
+  },
+  {
+    "source_id": "hq_cat5",
+    "name": "본부-행정공지",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/5/index.do"
+  },
+  {
+    "source_id": "hq_cat6",
+    "name": "본부-특강공지",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/6/index.do"
+  },
+  {
+    "source_id": "hq_cat7",
+    "name": "본부-장학공지",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/7/index.do"
+  },
+  {
+    "source_id": "hq_cat8",
+    "name": "본부-사회봉사",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/8/index.do"
+  },
+  {
+    "source_id": "hq_cat9",
+    "name": "본부-공모ㆍ행사",
+    "engine": "A",
+    "list_url": "https://www.kookmin.ac.kr/user/kmuNews/notice/9/index.do"
+  },
+  {
+    "source_id": "iat",
+    "name": "국제교류팀",
+    "engine": "C",
+    "list_url": "https://iat.kookmin.ac.kr/admission/community/notice"
+  },
+  {
+    "source_id": "kibs",
+    "name": "KIBS",
+    "engine": "C",
+    "list_url": "https://kibs.kookmin.ac.kr/notice"
+  },
+  {
+    "source_id": "kmcounsel",
+    "name": "학생생활상담센터",
+    "engine": "A2",
+    "list_url": "https://kmcounsel.kookmin.ac.kr/kmcounsel/board/notice.do"
+  },
+  {
+    "source_id": "kmu_cts",
+    "name": "미래융합대학",
+    "engine": "A2",
+    "list_url": "https://kmu-cts.kookmin.ac.kr/kmu-cts/etc/sitemap016.do"
+  },
+  {
+    "source_id": "kyungsang",
+    "name": "경상대학",
+    "engine": "C",
+    "list_url": "https://kyungsang.kookmin.ac.kr/community/board/notice"
+  },
+  {
+    "source_id": "law",
+    "name": "법과대학",
+    "engine": "A2",
+    "list_url": "https://law.kookmin.ac.kr/law/etc-board/notice01.do"
+  },
+  {
+    "source_id": "lifelong",
+    "name": "미래인재교육원",
+    "engine": "E",
+    "list_url": "https://lifelong.kookmin.ac.kr/ko/boards/notice_board"
+  },
+  {
+    "source_id": "research",
+    "name": "산학협력단",
+    "engine": "C",
+    "list_url": "https://research.kookmin.ac.kr/information/notice"
+  },
+  {
+    "source_id": "rise",
+    "name": "RISE사업단",
+    "engine": "D",
+    "list_url": "https://rise.kookmin.ac.kr/main/menu?gc=605XOAS"
+  },
+  {
+    "source_id": "software",
+    "name": "SW중심대학사업단",
+    "engine": "A2",
+    "list_url": "https://software.kookmin.ac.kr/software/bulletin/notice.do"
+  },
+  {
+    "source_id": "teaching",
+    "name": "교직과정부",
+    "engine": "C",
+    "list_url": "https://teaching.kookmin.ac.kr/introduce/notice"
+  }
+]

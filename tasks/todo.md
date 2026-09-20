@@ -456,20 +456,22 @@
 
 ## T18 수집기, 스케줄러, 공지 연결 (2등급)
 
-- [ ] 완료 · 소요 시간:
+- [x] 완료 · 소요 시간: 17분
 
 **설명.** 그림의 수집기, 스케줄러, 공지 연결을 옮긴다. 앱은 이것을 띄우지 않는다.
 
 **읽을 곳** SPEC 8.7
 
 **완료 조건**
-- [ ] `sites.json`에 30곳을 적는다. 엔진 A 파서만 구현하고, 다른 엔진은 로그를 남기고 건너뛴다.
-- [ ] `collect_once()`가 새 공지와 바뀐 공지만 돌려준다(key와 `body_hash` 기준). `--schedule`은 주기 실행이다.
-- [ ] 공지 연결의 후보 규칙과 LLM 1회 확정을 구현한다.
+- [x] `sites.json`에 30곳을 적는다. 엔진 A 파서만 구현하고, 다른 엔진은 로그를 남기고 건너뛴다.
+- [x] `collect_once()`가 새 공지와 바뀐 공지만 돌려준다(key와 `body_hash` 기준). `--schedule`은 주기 실행이다.
+- [x] 공지 연결의 후보 규칙과 LLM 1회 확정을 구현한다.
 
 **검증**
-- [ ] `pytest -q tests/test_collector.py`: 변경 감지와 연결 후보 규칙을 순수 함수로 확인한다.
-- [ ] 수동(시간이 남으면): `python -m app.collector --once --dry-run`이 한 게시판 목록을 출력하는지 확인한다.
+- [x] `pytest -q tests/test_collector.py`: 변경 감지와 연결 후보 규칙을 순수 함수로 확인한다. (39개)
+- [ ] 수동(시간이 남으면): `python -m app.collector --once --dry-run`이 한 게시판 목록을 출력하는지 확인한다. → **못 했다.** 학교 사이트를 실제로 수집하지 않는다(SPEC 12절). 사람 확인 대기이고, 엔진 A 파서 규칙 두 가지는 그때 고칠 추정이다.
+
+**결과.** `app/sites.json` 30곳은 메인 레포 `data/notices/_all.json`의 공지 URL에서 뽑았다(엔진 A는 `/user/kmuNews/notice/{n}/index.do`, 나머지는 글 번호나 `mode`·`articleNo`·`do`·`bwrite_id` 쿼리를 뗀 주소. 30곳 모두 공지마다 같은 주소가 나왔다). `app/collector.py`: 엔진 A 목록·상세 파서(stdlib `html.parser`), `collect_once()`(새 key와 `body_hash` 변화만 넣거나 갱신, 게시판·공지 하나가 실패해도 계속), `--once`·`--once --dry-run`·`--schedule N`, 공지 연결(정규화 제목 일치 또는 bigram Jaccard ≥ 0.6 + 게시일 30일 이내로 후보 5개, LLM 1회 `{"same"}`, 후보 밖 key·깨진 JSON은 연결 안 함, 묶음 대표는 숨김·점검·조건 수·본문 길이 순으로 다시 고름). `tests/test_collector.py` 39개는 저장해 둔 HTML 조각과 가짜 fetch·가짜 LLM으로 확인한다(네트워크 없음).
 
 **의존** T01, T17 · **파일** `app/collector.py`, `app/sites.json`, `tests/test_collector.py` · **크기** M
 
