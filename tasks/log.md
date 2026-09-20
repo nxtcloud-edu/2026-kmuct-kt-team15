@@ -21,6 +21,7 @@
 - 10:08 T13 완료 (D 레인). main에 합침. `pytest -q` 286 passed 3 skipped.
 - 10:07 Checkpoint 2의 API 부분 통과: `data/kmu-demo.db` 사본으로 시연 경로 1~15번 43개 검사 전부 PASS. 3/16 목록 59건(지원 가능 12 · 조건 안 맞음 11 · 입력하면 확인 17 · 확인 중 19). 원문 시트 강조 구간 81개가 모두 조건 `quote`와 글자 그대로 같다. 브라우저 클릭 확인은 남았다.
 - 10:09 T10 완료 (C 레인, 22분). main에 합침. `pytest -q` 286 passed 3 skipped.
+- 10:17 T14 완료 (D 레인). main에 합침. `pytest -q` 303 passed 3 skipped. 키를 비운 서버에서 `/api/notices` 200, 301자 422, `/api/chat`이 `error` 한 줄인 것을 확인했다.
 ## 막힘
 
 <!-- 작업 id, 무엇이 막혔나, 시도한 것, 사람이 정할 것 -->
@@ -44,6 +45,7 @@
 - T08 / SPEC 7: `PUT /api/tasks/{id}`의 `done`이 bool이 아니면 422. `GET /api/plan` 마감 동률은 key 오름차순. `plan.added_at`은 `DEMO_TODAY` 날짜. `reveal-new`의 `items`는 이번에 보이게 된 카드만.
 - T13 / SPEC 8.4: 도구 결과 카드 모양, 검색 문서 구성(제목 3배 + 부제 + 조건·요약 + 본문 앞 2,000자), 결과 JSON 1,200자 자르기, 모르는 category는 `check_eligibility`도 무시.
 - T10 / `docs/ui-spec.md`: `path` 한 줄은 제목과 게시판 라벨 사이. `text`가 빈 구역은 글 상자를 그리지 않는다. 되묻기 질문은 18px/700. 홈 되묻기 카드 로드 실패는 카드만 숨긴다. `highlights`는 Python 문자 수라 이모지가 있으면 JS `slice`와 어긋난다(인용은 모두 한글).
+- T14 / SPEC 8.4: 응답 미디어 타입 `application/x-ndjson`. 60초 제한은 다음 이벤트를 기다리는 동안에만 잰다. 인증 단계의 DB 실패는 평소 예외다. 분당 제한 창은 프로세스 메모리다.
 ## spec 수정
 
 <!-- 작업 id, 고친 절, 무엇을 왜 -->
@@ -52,3 +54,4 @@
 - T05 / SPEC 8.1 "알림": 같은 종류 안 순서를 한 구절로 적었다.
 - T13 / SPEC 8.4 도구 절: 도구 결과 모양, 검색 문서 구성, 작은 규칙들을 불릿 3개로 적었다.
 - T10 / SPEC 8.3 "원문 시트": `path` 한 줄 위치와 빈 구역 처리를 적었다.
+- T14 / SPEC 8.4 "NDJSON 이벤트": 미디어 타입, 라우터 자리와 import 순서, 헤더를 직접 읽는 이유를 적었다.
