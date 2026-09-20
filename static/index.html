@@ -339,7 +339,6 @@ select.inp{appearance:none;-webkit-appearance:none}
 .phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;width:100%;text-align:left}
 .phead .nm{font-size:18px;font-weight:700}
 .phead .dd{font-size:16px;font-weight:700;flex:none}
-.plans+.tbtn{display:block;margin:0 auto}
 
 /* 5.7 대화 */
 .chatlog{display:flex;flex-direction:column;gap:18px;padding:8px 0 20px}
@@ -1453,8 +1452,7 @@ function planView(){
         + '<span class="dd">' + ddayHtml(it.apply_end) + '</span></button>'
         + (it.tasks || []).map(taskRow).join("")
         + '</div>';
-    }).join("") + '</div>'
-      + '<button class="tbtn" data-cal-add="1">캘린더 앱에 모두 추가</button>';
+    }).join("") + '</div>';
   }
 
   const html = '<div class="screen ground enter">'
@@ -2074,7 +2072,6 @@ document.addEventListener("click", function (e){
     render();
     return;
   }
-  if (e.target.closest("[data-cal-add]")){ toast("캘린더 앱에 추가했어요 (시안)"); return; }
 
   /* 5.7 대화 */
   if (e.target.closest("[data-send]")){ sendChat(state.chat.draft); return; }
