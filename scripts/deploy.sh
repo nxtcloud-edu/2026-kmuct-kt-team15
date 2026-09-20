@@ -79,6 +79,7 @@ fi
 if grep -q '^DB_PATH=' .env; then sed -i "s#^DB_PATH=.*#DB_PATH=$APP_DIR/data/kmu.db#" .env; else echo "DB_PATH=$APP_DIR/data/kmu.db" >> .env; fi
 chmod 600 .env
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+chmod +x scripts/*.sh   # the tarball may come from a Windows checkout with no execute bit
 
 echo "== service"
 sed -e "s#/opt/uniq#$APP_DIR#g" -e "s#^User=.*#User=$APP_USER#" -e "s#^Environment=PORT=.*#Environment=PORT=$PORT#" \
@@ -87,7 +88,7 @@ systemctl daemon-reload
 systemctl enable --quiet uniq
 systemctl restart uniq
 if [ -n "${S3_BUCKET:-}" ] && ! crontab -u "$APP_USER" -l 2>/dev/null | grep -q backup.sh; then
-  (crontab -u "$APP_USER" -l 2>/dev/null; echo "*/10 * * * * S3_BUCKET=$S3_BUCKET APP_DIR=$APP_DIR $APP_DIR/scripts/backup.sh") | crontab -u "$APP_USER" -
+  (crontab -u "$APP_USER" -l 2>/dev/null; echo "*/10 * * * * S3_BUCKET=$S3_BUCKET APP_DIR=$APP_DIR bash $APP_DIR/scripts/backup.sh") | crontab -u "$APP_USER" -
   echo "backup cron installed (every 10 min -> s3://$S3_BUCKET/backup/)"
 fi
 
