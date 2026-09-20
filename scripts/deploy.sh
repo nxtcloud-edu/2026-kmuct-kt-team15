@@ -22,9 +22,10 @@ UNIT=/etc/systemd/system/uniq.service
 
 echo "== packages"
 if command -v dnf >/dev/null; then
-  dnf install -y -q git sqlite tar gzip >/dev/null            # AL2023 ships python3.12 and the aws cli
+  dnf install -y -q git sqlite tar gzip cronie >/dev/null     # AL2023 ships python3.12 and the aws cli, but no cron
+  systemctl enable --now --quiet crond
 else
-  apt-get update -q && apt-get install -y -q python3.12-venv git curl sqlite3 tar unzip
+  apt-get update -q && apt-get install -y -q python3.12-venv git curl sqlite3 tar unzip cron
   if [ -n "${S3_BUCKET:-}" ] && ! command -v aws >/dev/null; then
     curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
     unzip -qo /tmp/awscli.zip -d /tmp && /tmp/aws/install --update
