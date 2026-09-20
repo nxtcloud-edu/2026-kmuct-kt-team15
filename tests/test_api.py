@@ -711,3 +711,220 @@ def test_answering_the_ask_decides_those_rows(client):
 def test_ask_and_judge_need_a_student(client):
     assert client.get("/api/ask").status_code == 401
     assert client.post("/api/judge", json={"notice_keys": []}).status_code == 401
+
+
+# --- the plan (SPEC 7 계획과 할 일, 8.2, 10.1 A5, A6) --------------------------
+
+
+def plan_keys(client):
+    return [item["key"] for item in client.get("/api/plan").json()["items"]]
+
+
+def test_plan_lists_by_deadline_with_a_null_alt(client):
+    # SPEC 10.1 A6
+    add_card(client.db_path, "hq:late", apply_end="2026-03-30", fields=[["제출 서류", "신청서"]])
+    add_card(client.db_path, "hq:soon", apply_end="2026-03-19")
+    new_student(client)
+    assert client.post("/api/plan/hq:late").status_code == 204
+    assert client.post("/api/plan/hq:soon").status_code == 204
+    items = client.get("/api/plan").json()["items"]
+    assert [i["key"] for i in items] == ["hq:soon", "hq:late"]
+    assert items[1]["fields"] == [["제출 서류", "신청서"]]
+    assert items[1]["posted_date"] == "2026-03-01"
+    assert all(i["alt"] is None and i["planned"] is True for i in items)
+
+
+def test_plan_keeps_a_null_alt_even_when_the_card_turns_ineligible(client):
+    add_card(client.db_path, "hq:sw", conditions=[major_cond()], category="장학")
+    add_card(client.db_path, "hq:other", category="장학", apply_end="2026-03-18")
+    new_student(client)
+    client.put("/api/me", json={"major": "소프트웨어학부"})
+    client.post("/api/plan/hq:sw")
+    client.put("/api/me", json={"major": "경영학부"})
+    assert client.get("/api/notices/hq:sw").json()["alt"]["key"] == "hq:other"
+    assert client.get("/api/plan").json()["items"][0]["alt"] is None
+
+
+def test_plan_refuses_a_card_the_student_cannot_apply_to(client):
+    # SPEC 10.1 A5: "확인 필요" counts as not eligible too.
+    add_card(client.db_path, "hq:gpa", conditions=[gpa_cond()])
+    add_card(client.db_path, "hq:last", conditions=[last_gpa_cond()])
+    add_card(client.db_path, "hq:unresolved", conditions=[
+        {"id": "c1", "type": "unresolved", "label": "지원 자격", "need": "확인 중",
+         "params": {"reason": "못 찾음"}, "source_id": 1, "quote": ""}])
+    add_card(client.db_path, "hq:open", conditions=[none_cond()])
+    new_student(client)
+    assert client.post("/api/plan/hq:gpa").status_code == 409
+    assert client.post("/api/plan/hq:last").status_code == 409
+    assert client.post("/api/plan/hq:unresolved").status_code == 409
+    assert client.post("/api/plan/hq:open").status_code == 204
+    assert plan_keys(client) == ["hq:open"]
+    client.put("/api/me", json={"gpa": 3.52})
+    assert client.post("/api/plan/hq:gpa").status_code == 204
+
+
+def test_plan_add_is_404_outside_the_list_and_repeats_are_fine(client):
+    add_card(client.db_path, "hq:ok")
+    add_card(client.db_path, "hq:hidden", hidden=1)
+    new_student(client)
+    assert client.post("/api/plan/hq:hidden").status_code == 404
+    assert client.post("/api/plan/hq:nothing").status_code == 404
+    assert client.post("/api/plan/hq:ok").status_code == 204
+    assert client.post("/api/plan/hq:ok").status_code == 204
+    assert plan_keys(client) == ["hq:ok"]
+
+
+def test_plan_delete_is_204_even_when_it_was_never_there(client):
+    add_card(client.db_path, "hq:ok")
+    new_student(client)
+    client.post("/api/plan/hq:ok")
+    assert client.delete("/api/plan/hq:ok").status_code == 204
+    assert plan_keys(client) == []
+    assert client.delete("/api/plan/hq:ok").status_code == 204
+    assert client.delete("/api/plan/hq:nothing").status_code == 204
+
+
+def test_plan_drops_a_card_that_left_the_list(client):
+    add_card(client.db_path, "hq:ok")
+    new_student(client)
+    client.post("/api/plan/hq:ok")
+    conn = db.connect(client.db_path)
+    with conn:
+        conn.execute("UPDATE card SET hidden = 1 WHERE notice_key = 'hq:ok'")
+    conn.close()
+    assert plan_keys(client) == []
+
+
+# --- tasks (SPEC 7 PUT /api/tasks/{id}) ---------------------------------------
+
+
+def test_task_check_and_uncheck_survive_a_reload(client):
+    add_card(client.db_path, "hq:ok")
+    task_id = add_task(client.db_path, "hq:ok", "신청서 제출", "2026-03-20")
+    new_student(client)
+    client.post("/api/plan/hq:ok")
+    assert client.put(f"/api/tasks/{task_id}", json={"done": True}).status_code == 204
+    assert client.get("/api/plan").json()["items"][0]["tasks"][0]["done"] is True
+    assert client.get("/api/notices/hq:ok").json()["tasks"][0]["done"] is True
+    assert client.put(f"/api/tasks/{task_id}", json={"done": True}).status_code == 204
+    assert client.put(f"/api/tasks/{task_id}", json={"done": False}).status_code == 204
+    assert client.get("/api/notices/hq:ok").json()["tasks"][0]["done"] is False
+
+
+def test_task_of_an_unplanned_card_can_be_checked(client):
+    add_card(client.db_path, "hq:ok")
+    task_id = add_task(client.db_path, "hq:ok", "성적증명서 발급", "2026-03-18")
+    new_student(client)
+    assert client.put(f"/api/tasks/{task_id}", json={"done": True}).status_code == 204
+    assert client.get("/api/notices/hq:ok").json()["tasks"][0]["done"] is True
+
+
+def test_task_refuses_an_unknown_id_and_a_bad_body(client):
+    add_card(client.db_path, "hq:ok")
+    task_id = add_task(client.db_path, "hq:ok", "신청서 제출", "2026-03-20")
+    new_student(client)
+    assert client.put("/api/tasks/9999", json={"done": True}).status_code == 404
+    assert client.put(f"/api/tasks/{task_id}", json={}).status_code == 422
+    assert client.put(f"/api/tasks/{task_id}", json={"done": "yes"}).status_code == 422
+
+
+def test_two_students_keep_their_own_plan_and_checks(client):
+    add_card(client.db_path, "hq:ok")
+    task_id = add_task(client.db_path, "hq:ok", "신청서 제출", "2026-03-20")
+    first = new_student(client)
+    client.post("/api/plan/hq:ok")
+    client.put(f"/api/tasks/{task_id}", json={"done": True})
+    new_student(client)
+    assert plan_keys(client) == []
+    assert client.get("/api/notices/hq:ok").json()["tasks"][0]["done"] is False
+    client.headers["X-Student-Id"] = first
+    assert plan_keys(client) == ["hq:ok"]
+    assert client.get("/api/plan").json()["items"][0]["tasks"][0]["done"] is True
+
+
+# --- alerts (SPEC 7 알림 kind, 8.1 알림, 10.1 A13) -----------------------------
+
+
+def test_alerts_are_empty_without_anything_to_say(client):
+    add_card(client.db_path, "hq:ok")
+    new_student(client)
+    assert client.get("/api/alerts").json() == []
+
+
+def test_alerts_keep_the_new_deadline_today_order(client):
+    # SPEC 10.1 A13
+    add_card(client.db_path, "hq:new", title="OK프렌즈 서포터즈", apply_end="2026-03-25",
+             demo_new=1)
+    add_card(client.db_path, "hq:soon", title="희망사다리 장학금", apply_end="2026-03-19")
+    add_card(client.db_path, "hq:task", title="국가근로 장학금", apply_end="2026-03-25")
+    done_id = add_task(client.db_path, "hq:task", "이미 한 일", TODAY, ord_=1)
+    add_task(client.db_path, "hq:task", "신청서 제출", TODAY, ord_=2)
+    add_task(client.db_path, "hq:task", "나중에 할 일", "2026-03-25", ord_=3)
+    new_student(client)
+    client.post("/api/reveal-new")
+    client.post("/api/plan/hq:soon")
+    client.post("/api/plan/hq:task")
+    client.put(f"/api/tasks/{done_id}", json={"done": True})
+    assert client.get("/api/alerts").json() == [
+        {"kind": "new", "title": "새 기회를 찾았어요",
+         "body": "OK프렌즈 서포터즈 · 내 조건으로 지원할 수 있어요", "notice_key": "hq:new"},
+        {"kind": "deadline", "title": "희망사다리 장학금 마감이 3일 남았어요", "body": "",
+         "notice_key": "hq:soon"},
+        {"kind": "today", "title": "오늘 할 일", "body": "신청서 제출", "notice_key": "hq:task"},
+    ]
+
+
+def test_alerts_skip_a_new_card_the_student_cannot_apply_to(client):
+    add_card(client.db_path, "hq:new", conditions=[gpa_cond(4.0)], demo_new=1)
+    new_student(client)
+    client.put("/api/me", json={"gpa": 3.0})
+    client.post("/api/reveal-new")
+    assert client.get("/api/alerts").json() == []
+
+
+def test_alerts_only_watch_the_planned_cards(client):
+    add_card(client.db_path, "hq:soon", apply_end="2026-03-19")
+    add_card(client.db_path, "hq:task")
+    add_task(client.db_path, "hq:task", "신청서 제출", TODAY)
+    new_student(client)
+    assert client.get("/api/alerts").json() == []  # nothing is in the plan yet
+    client.post("/api/plan/hq:soon")
+    assert [a["kind"] for a in client.get("/api/alerts").json()] == ["deadline"]
+
+
+# --- revealing the demo_new card (SPEC 7, 10.1 A8) ----------------------------
+
+
+def test_reveal_new_shows_the_card_once_and_only_to_that_student(client):
+    # SPEC 10.1 A8
+    add_card(client.db_path, "hq:ok")
+    add_card(client.db_path, "hq:new", title="OK프렌즈 서포터즈", apply_end="2026-03-25",
+             demo_new=1)
+    first = new_student(client)
+    assert keys_of(client) == ["hq:ok"]
+    body = client.post("/api/reveal-new").json()
+    assert [i["key"] for i in body["items"]] == ["hq:new"]
+    assert body["items"][0]["is_new"] is True
+    assert body["items"][0]["title"] == "OK프렌즈 서포터즈"
+    assert keys_of(client) == ["hq:new", "hq:ok"]
+    assert client.post("/api/reveal-new").json() == {"items": []}
+    assert keys_of(client) == ["hq:new", "hq:ok"]
+    new_student(client)
+    assert keys_of(client) == ["hq:ok"]
+    client.headers["X-Student-Id"] = first
+    assert keys_of(client) == ["hq:new", "hq:ok"]
+
+
+def test_reveal_new_without_a_demo_card_gives_nothing(client):
+    add_card(client.db_path, "hq:ok")
+    new_student(client)
+    assert client.post("/api/reveal-new").json() == {"items": []}
+
+
+def test_plan_tasks_alerts_and_reveal_need_a_student(client):
+    assert client.get("/api/plan").status_code == 401
+    assert client.post("/api/plan/hq:ok").status_code == 401
+    assert client.delete("/api/plan/hq:ok").status_code == 401
+    assert client.put("/api/tasks/1", json={"done": True}).status_code == 401
+    assert client.get("/api/alerts").status_code == 401
+    assert client.post("/api/reveal-new").status_code == 401
