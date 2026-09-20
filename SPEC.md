@@ -629,7 +629,7 @@ UI 시안의 `missing`(입력 안 함)과 `unknown`(기준 확인 필요)은 화
 - **긴 텍스트는 system 메시지에:** 긴 텍스트를 user 메시지에 넣으면 게이트웨이의 의도 분류기가 약 13k 토큰을 끼워 넣는다. 도구 결과는 전부 system 메시지에 넣고, user 메시지에는 학생 질문만 넣는다.
 - **32k 초과는 조용히 잘림:** 입력이 `max_input`(32,768)을 넘어도 에러 없이 조용히 잘린다. `input >= max_input`이면 예외를 던진다.
 - **기억 없음:** 게이트웨이는 호출 사이를 기억하지 않는다. 질문 하나를 독립적으로 처리한다(다중 턴은 미결 질문 7번).
-- **함수:** `async def chat(messages)`가 `{text, input_tokens, output_tokens, tps, seconds}`를 돌려준다(`tps`는 없으면 `None`). `/api/chat`의 60초 제한이 취소하면 연결도 닫힌다. 실패는 `RuntimeError`(키나 `LLM_BASE_URL` 없음, `error` 이벤트, `max_input` 도달, 읽을 수 없는 줄, `[DONE]` 없음)나 `httpx.HTTPError`다. `thinking_enabled`는 `LLM_THINKING=1`일 때만 켠다. CLI(2등급)는 `asyncio.run`으로 부른다.
+- **함수:** `async def chat(messages)`가 `{text, input_tokens, output_tokens, tps, seconds}`를 돌려준다(`tps`는 없으면 `None`). `/api/chat`의 60초 제한이 취소하면 연결도 닫힌다. 실패는 `RuntimeError`(키나 `LLM_BASE_URL` 없음, `error` 이벤트, `max_input` 도달, 읽을 수 없는 줄, `[DONE]` 없음)나 `httpx.HTTPError`다. `thinking_enabled`는 `LLM_THINKING=1`일 때만 켠다. CLI(2등급)는 `asyncio.run`으로 부른다. 키와 `LLM_BASE_URL`은 import할 때가 아니라 호출할 때 읽는다(키가 비어도 서버는 뜬다). 줄 파싱은 `chat`과 따로 부를 수 있는 함수(`parse_lines`)로 두어 네트워크 없이 시험한다. `chat(messages, transport=None)`의 `transport`는 시험용이고(`httpx.MockTransport`), 실제 호출은 `None`이다.
 
 **에이전트 루프.** 질문 하나에 LLM을 최대 5회 부른다. 모델은 매번 JSON 객체 하나만 출력한다.
 - 도구 호출: `{"tool": "search_notices", "args": {"query": "교환학생", "category": null}}`
