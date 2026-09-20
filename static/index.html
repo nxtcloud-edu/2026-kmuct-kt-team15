@@ -1209,11 +1209,12 @@ function startTicker(turn){
   }, 100);
 }
 
-/* 5.7: two characters every 18ms, with the caret while it runs */
+/* 5.7: two characters every 18ms, with the caret while it runs. A hidden tab gets
+   its timers throttled to once a minute, so there the answer lands whole (9/20). */
 function typeAnswer(turn){
   clearInterval(typeAnswer.t);
   typeAnswer.t = setInterval(function (){
-    turn.typed = Math.min(turn.typed + 2, turn.answer.length);
+    turn.typed = document.hidden ? turn.answer.length : Math.min(turn.typed + 2, turn.answer.length);
     if (turn.typed >= turn.answer.length){
       clearInterval(typeAnswer.t);
       state.chat.busy = false;
@@ -1247,6 +1248,9 @@ function chatEvent(turn, ev){
     return;
   }
   if (ev.type === "error"){
+    /* An answer already on screen stays: a stream that breaks after it is not an error
+       the student needs to see (9/20, the reply "vanished" into the error bubble). */
+    if (turn.answer != null) return;
     stopTicker();
     turn.ms = Date.now() - turn.t0;
     turn.error = ev.text || CHAT_ERROR;
