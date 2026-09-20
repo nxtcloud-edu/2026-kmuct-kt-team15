@@ -1,0 +1,12 @@
+# LLM endpoint and API key.
+.env
+
+# The submission repo does not carry data (SPEC section 12): the prepared DB and the
+# crawl live only on disk and on the server.
+data/
+
+__pycache__/
+.venv/
+
+# Local worktrees from lane runs.
+.claude/worktrees/
