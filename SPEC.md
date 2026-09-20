@@ -751,7 +751,7 @@ UI 시안의 `missing`(입력 안 함)과 `unknown`(기준 확인 필요)은 화
 - **`sites.json`:** 30곳을 `{"source_id", "name", "engine", "list_url"}`로 적는다. 크롤 데이터(`_all.json`)의 공지 URL에서 뽑았고, 엔진 A의 `list_url`(`.../notice/{n}/index.do`)은 추정이다. 다른 엔진의 `list_url`도 공지 URL에서 글 번호(경로 끝이나 `mode`·`articleNo`·`do`·`bwrite_id` 쿼리)를 뗀 추정이다.
   - 파서는 엔진 A(본교 `www.kookmin.ac.kr/user/kmuNews/notice/{n}` 게시판 8개, 454건)만 구현한다.
     - 목록: 이 게시판의 `{n}/{id}/view.do` 링크마다 한 행이다(상대 주소는 목록 주소로 푼다). 제목은 링크 안의 가장 긴 글, 게시일은 날짜만 있는 칸이다(`2026.04.30`, `-`·`/` 구분, 끝 점 허용). 게시일은 그 링크부터 다음 행 링크 전까지에서 처음 나오는 날짜다. 같은 글의 링크가 여럿이면 한 행으로 합치고 가장 긴 제목을 쓴다. 제목이나 게시일이 없는 행은 로그를 남기고 건너뛴다.
-    - 상세: class가 `view_cont` 류(`view_cont`, `view-cont`, `viewcont`가 들어간 것)인 첫 틀 안의 글이 본문, 글이 파일 이름(pdf, hwp, hwpx, doc, docx, xls, xlsx, ppt, pptx, zip, 그림, txt)인 링크가 첨부다. 첨부 링크는 페이지 어디에 있어도 센다. `department`는 채우지 않는다(NULL).
+    - 상세: class가 `view_cont` 류(`view_cont`, `view-cont`, `viewcont`가 들어간 것)인 첫 틀 안의 글이 본문, 글이 파일 이름(pdf, hwp, hwpx, doc, docx, xls, xlsx, ppt, pptx, zip, 그림, txt)인 링크가 첨부다. 이름 끝의 괄호(`붙임1.hwp (200KB)`)는 떼고 확장자를 본다. 첨부 링크는 페이지 어디에 있어도 센다. `department`는 채우지 않는다(NULL).
     - 두 규칙 모두 실제 페이지로 확인하지 않은 추정이다. 처음 `--once --dry-run`을 돌려 보고 고친다.
   - 다른 엔진은 로그를 남기고 건너뛴다.
 - **`collect_once()`:** 엔진 A 게시판마다 목록 첫 페이지를 받는다. `body_hash`에는 본문이 필요하므로 목록의 공지마다 상세를 받는다. 새 key이거나 `body_hash`가 바뀐 공지만 `notice`에 넣거나 갱신한다(갱신은 제목, 본문, 첨부, `body_hash`, `crawled_at`). `{"new": [key], "changed": [key]}`를 돌려준다.
